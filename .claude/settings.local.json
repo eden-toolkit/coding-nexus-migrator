@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python test_incremental_migration.py)",
+      "Bash(del test_incremental_migration.py)",
+      "Bash(python test_repository_fix.py)",
+      "Bash(pip install build)",
+      "Bash(python -m build)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

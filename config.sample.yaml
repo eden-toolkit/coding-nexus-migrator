@@ -1,0 +1,18 @@
+coding:
+  team_id: 123456
+  token: your_coding_token_here
+logging:
+  file: migration.log
+  level: INFO
+migration:
+  batch_size: 50
+  download_path: ./downloads
+  parallel_downloads: 3
+  project_names:
+  - project1
+  - project2
+nexus:
+  password: admin123
+  repository: maven-releases
+  url: http://localhost:8081
+  username: admin

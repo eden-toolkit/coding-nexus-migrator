@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coding-nexus-migrator"
+version = "1.0.0"
+description = "迁移 CODING 的 Maven 制品库迁移到 Nexus 私服"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "梦想歌", email = "shiyindaxiaojie@gmail.com"}
+]
+maintainers = [
+    {name = "梦想歌", email = "shiyindaxiaojie@gmail.com"}
+]
+keywords = ["maven", "nexus", "coding", "migration", "artifacts", "repository"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+      "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.31.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "click>=8.1.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "build>=0.10.0",
+    "twine>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/shiyindaxiaojie/coding-maven-migrator"
+Documentation = "https://github.com/shiyindaxiaojie/coding-maven-migrator/blob/main/README.md"
+Repository = "https://github.com/shiyindaxiaojie/coding-maven-migrator.git"
+"Bug Tracker" = "https://github.com/shiyindaxiaojie/coding-maven-migrator/issues"
+
+[project.scripts]
+coding-nexus-migrator = "coding_migrator.cli:main"
+cnm = "coding_migrator.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+coding_migrator = ["*.yaml", "*.yml", "*.json"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+]
