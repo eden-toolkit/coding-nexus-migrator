@@ -79,7 +79,7 @@ class MemoryPipelineMigrator:
         self.stop_event = threading.Event()
 
         # 迁移记录目录（固定目录，支持增量迁移）
-        self.records_dir = Path("migration_records")
+        self.records_dir = Path("target")
         self.records_dir.mkdir(exist_ok=True)
 
         # 迁移记录文件和依赖列表（将在migrate_project中初始化）

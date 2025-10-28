@@ -49,9 +49,11 @@ class ConfigManager:
 
             # 构建 Maven 过滤配置
             maven_filter_data = config_data['coding'].get('maven_filter', {})
+            # 兼容旧格式，支持 package_patterns 字段
+            patterns = maven_filter_data.get('patterns') or maven_filter_data.get('package_patterns', [])
             maven_filter = MavenFilterConfig(
                 enabled=maven_filter_data.get('enabled', False),
-                patterns=maven_filter_data.get('patterns', [])
+                patterns=patterns
             )
 
             # 构建分页配置

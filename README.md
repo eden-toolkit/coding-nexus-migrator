@@ -4,15 +4,10 @@
 
 ## 🚀 核心特性
 
-- **零磁盘占用内存流水线** - 边下载边上传播，默认内存传输，不占用磁盘空间
+- **基于内存迁移** - 边下载边上传，默认内存传输，不占用磁盘空间
 - **智能去重机制** - 基于文件哈希避免重复上传，支持断点续传
-- **高性能并发处理** - 针对 CODING 30 req/s 限制优化，多线程并发
+- **稳定限速迁移** - 针对 CODING 30 req/s 限制优化，多线程并发
 - **自动版本识别** - 智能识别 SNAPSHOT 和 RELEASE 版本，自动分配到对应仓库
-- **完善的错误处理** - 智能重试、速率限制处理、详细日志记录
-- **灵活的配置选项** - 支持多仓库认证、包过滤、性能调优
-- **🔥 Linux部署支持** - 支持外部配置文件和环境变量，适合服务器部署
-- **🔧 增量迁移** - 支持断点续传，避免重复上传已迁移的制品
-- **📊 详细日志** - 清晰显示上传进度和已上传的依赖列表
 
 ## 📦 使用要求
 
@@ -57,7 +52,7 @@ python -m build
 
 #### 2. 上传到服务器
 
-将 `dist/coding-nexus-migrator-1.0.0-py3-none-any.whl` 上传到Linux服务器
+将 `dist/coding_nexus_migrator-1.0.0-py3-none-any.whl` 上传到Linux服务器
 
 #### 3. 服务器安装和配置
 
@@ -67,10 +62,10 @@ python3 -m venv venv
 source venv/bin/activate
 
 # 安装工具
-pip install coding-nexus-migrator-1.0.0-py3-none-any.whl
+pip install coding_nexus_migrator-1.0.0-py3-none-any.whl
 
 # 配置方式1：使用配置文件
-cp config-linux.yaml config.yaml
+cp config.yaml config.yaml
 vi config.yaml
 
 # 配置方式2：使用环境变量（推荐）
@@ -91,13 +86,13 @@ source .env
 
 ```bash
 # 验证配置
-cnm verify-config --config config-linux.yaml
+cnm --config config.yaml verify-config
 
 # 执行迁移
-cnm migrate --projects your_project --config config-linux.yaml
+cnm --config config-linux.yaml migrate --projects your_project
 
 # 后台运行
-nohup cnm migrate --projects your_project --config config-linux.yaml > migration.log 2>&1 &
+nohup cnm --config config-linux.yaml migrate --projects your_project > migration.log 2>&1 &
 ```
 
 ```yaml
@@ -163,7 +158,7 @@ cnm verify-config
 python main.py list-projects
 
 # Linux服务器（安装后）
-cnm list-projects --config config-linux.yaml
+cnm --config config.yaml list-projects
 ```
 
 ### 6. 查看 Nexus 仓库信息
@@ -173,7 +168,7 @@ cnm list-projects --config config-linux.yaml
 python main.py repository-info
 
 # Linux服务器（安装后）
-cnm repository-info --config config-linux.yaml
+cnm repository-info --config config.yaml
 ```
 
 ### 7. 执行迁移
@@ -183,13 +178,13 @@ cnm repository-info --config config-linux.yaml
 python main.py migrate-memory-pipeline your_project
 
 # Linux服务器 - 内存流水线模式（推荐）
-cnm migrate --projects your_project --config config-linux.yaml
+cnm --config config-linux.yaml migrate --projects your_project --config config.yaml
 
 # Linux服务器 - 标准模式（适合调试）
-cnm migrate --projects your_project --standard-mode --config config-linux.yaml
+cnm --config config-linux.yaml migrate --projects your_project --standard-mode --config config.yaml
 
 # 试运行（只查看不执行）
-cnm migrate --projects your_project --dry-run --config config-linux.yaml
+cnm --config config-linux.yaml migrate --projects your_project --dry-run --config config.yaml
 ```
 
 ## 📋 命令行接口
@@ -290,8 +285,10 @@ python -m build
 ```
 
 这会在 `dist/` 目录下生成：
-- `coding-nexus-migrator-1.0.0-py3-none-any.whl` (wheel包)
-- `coding-nexus-migrator-1.0.0.tar.gz` (源码包)
+- `coding_nexus_migrator-1.0.0-py3-none-any.whl` (wheel包)
+- `coding_nexus_migrator-1.0.0.tar.gz` (源码包)
+
+> 💡 **命名说明**: Python包名会自动将连字符转换为下划线（如 `coding-nexus-migrator` → `coding_nexus_migrator`），这是Python的标准行为
 
 ### 3. 上传到Linux服务器
 
@@ -308,10 +305,10 @@ source venv/bin/activate
 pip install --upgrade pip
 
 # 安装迁移工具
-pip install coding-nexus-migrator-1.0.0-py3-none-any.whl
+pip install coding_nexus_migrator-1.0.0-py3-none-any.whl
 
 # 或者从源码安装
-# pip install coding-nexus-migrator-1.0.0.tar.gz
+# pip install coding_nexus_migrator-1.0.0.tar.gz
 ```
 
 ### 5. 配置文件和环境变量
@@ -328,7 +325,7 @@ pip install coding-nexus-migrator-1.0.0-py3-none-any.whl
 
 ```bash
 # 复制Linux配置模板
-cp config-linux.yaml config.yaml
+cp config.yaml config.yaml
 
 # 编辑配置文件
 vi config.yaml  # 或使用其他编辑器
@@ -360,12 +357,12 @@ vi .env
 source .env
 
 # 验证配置
-cnm verify-config --config config-linux.yaml
+cnm --config config.yaml verify-config
 ```
 
 #### 📁 配置文件说明
 
-- `config-linux.yaml`: Linux服务器专用配置模板
+- `config.yaml`: Linux服务器专用配置模板
 - `.env.template`: 环境变量模板
 - `config.yaml`: 实际使用的配置文件（需要创建）
 
@@ -373,19 +370,19 @@ cnm verify-config --config config-linux.yaml
 
 ```bash
 # 检查环境
-cnm list-projects --config config-linux.yaml
+cnm --config config.yaml list-projects
 
 # 验证配置
-cnm verify-config --config config-linux.yaml
+cnm --config config.yaml verify-config
 
 # 执行迁移（内存流水线模式，低内存占用）
-cnm migrate --projects your_project_name --config config-linux.yaml
+cnm --config config-linux.yaml migrate --projects your_project_name --config config.yaml
 
 # 使用标准模式（适合调试）
-cnm migrate --projects your_project_name --standard-mode --config config-linux.yaml
+cnm --config config-linux.yaml migrate --projects your_project_name --standard-mode --config config.yaml
 
 # 后台运行
-nohup cnm migrate --projects your_project_name --config config-linux.yaml > migration.log 2>&1 &
+nohup cnm --config config-linux.yaml migrate --projects your_project_name --config config.yaml > migration.log 2>&1 &
 ```
 
 ### 7. 常用命令
@@ -404,13 +401,13 @@ cnm repository-info
 cnm verify-config
 
 # 试运行（只查看不执行）
-cnm migrate --projects your_project --dry-run
+cnm --config config-linux.yaml migrate --projects your_project --dry-run
 
 # 指定多个项目
-cnm migrate --projects "project1,project2,project3"
+cnm --config config-linux.yaml migrate --projects "project1,project2,project3"
 
 # 使用包过滤
-cnm migrate --projects your_project --filter "com.company.*,com.org.*"
+cnm --config config-linux.yaml migrate --projects your_project --filter "com.company.*,com.org.*"
 ```
 
 ### 低内存服务器优化
@@ -423,7 +420,7 @@ export PYTHONOPTIMIZE=1
 export PYTHONDONTWRITEBYTECODE=1
 
 # 使用更小的批处理
-cnm migrate --projects your_project_name --config low-memory-config.yaml
+cnm --config config-linux.yaml migrate --projects your_project_name --config low-memory-config.yaml
 ```
 
 创建 `low-memory-config.yaml`：
@@ -655,6 +652,22 @@ nexus:
 
 程序运行时会生成日志文件 `target/migration.log`，包含详细的运行信息和错误信息。
 
+### 迁移记录
+
+为了支持增量迁移和断点续传，程序会在 `target/` 目录下保存迁移记录：
+
+- `migration_records_{项目名}_{项目ID}.json`: 记录已上传的制品哈希
+- 包含已上传依赖的详细信息
+- 支持重新运行时跳过已上传的制品
+
+**目录结构**：
+```
+target/
+├── migration.log                    # 运行日志
+├── migration_records_project1_123.json  # 项目1的迁移记录
+└── migration_records_project2_456.json  # 项目2的迁移记录
+```
+
 ## 📁 项目结构
 
 ```
@@ -673,7 +686,7 @@ src/coding_migrator/
 └── utils.py                      # 工具函数
 
 # 配置文件
-config-linux.yaml                 # Linux服务器配置模板
+config.yaml                 # Linux服务器配置模板
 .env.template                     # 环境变量模板
 config.sample.yaml                # 示例配置文件
 
@@ -703,11 +716,11 @@ python main.py migrate-memory-pipeline your_project
 python -m build
 
 # 2. 服务器安装
-pip install coding-nexus-migrator-1.0.0-py3-none-any.whl
+pip install coding_nexus_migrator-1.0.0-py3-none-any.whl
 
 # 3. 配置（三选一）
 # 方法1：配置文件
-cp config-linux.yaml config.yaml && vi config.yaml
+cp config.yaml config.yaml && vi config.yaml
 
 # 方法2：环境变量
 export CODING_TOKEN="xxx" && export NEXUS_URL="xxx" ...
@@ -716,7 +729,7 @@ export CODING_TOKEN="xxx" && export NEXUS_URL="xxx" ...
 cp .env.template .env && vi .env && source .env
 
 # 4. 运行迁移
-cnm migrate --projects your_project --config config-linux.yaml
+cnm --config config-linux.yaml migrate --projects your_project --config config.yaml
 ```
 
 ### 关键特性

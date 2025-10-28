@@ -114,7 +114,7 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
         # 应用命令行过滤规则
         if filter:
             filter_patterns = [p.strip() for p in filter.split(',')]
-            config.maven_filter.package_patterns = filter_patterns
+            config.maven_filter.patterns = filter_patterns
 
         if dry_run:
             click.echo("🔍 试运行模式 - 只查看要迁移的制品")
@@ -148,8 +148,26 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
                 project_names = [p.strip() for p in projects.split(',')]
                 for project_name in project_names:
                     click.echo(f"\n🚀 开始内存迁移项目: {project_name}")
-                    result = migrator.migrate_project(project_name, project_name)
-                    _display_result(result)
+
+                    # 获取项目ID
+                    try:
+                        projects_list = migrator.coding_client.get_projects()
+                        target_project = None
+                        for project in projects_list:
+                            if project.name == project_name:
+                                target_project = project
+                                break
+
+                        if not target_project:
+                            click.echo(f"❌ 未找到项目: {project_name}")
+                            continue
+
+                        result = migrator.migrate_project(target_project.id, project_name)
+                        _display_result(result)
+
+                    except Exception as e:
+                        click.echo(f"❌ 获取项目信息失败: {e}")
+                        continue
             else:
                 click.echo("❌ 内存流水线模式需要指定项目名称")
                 click.echo("使用 --projects 参数指定项目，或使用标准模式")
