@@ -70,7 +70,7 @@ python main.py list-projects
 python main.py migrate-memory-pipeline your_project_name
 ```
 
-### Linux 服务器部署
+### 服务器部署
 
 #### 1. 构建分发包
 ```bash
