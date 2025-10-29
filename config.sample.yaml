@@ -1,18 +1,76 @@
+# CODING Maven 制品库迁移配置文件 - 示例模板
+# 请复制此文件为 config.yaml 并填入您的实际配置信息
+# 支持两种迁移模式：内存流水线模式（推荐）和标准模式
+
+# CODING 配置
 coding:
-  team_id: 123456
-  token: your_coding_token_here
-logging:
-  file: migration.log
-  level: INFO
-migration:
-  batch_size: 50
-  download_path: ./downloads
-  parallel_downloads: 3
-  project_names:
-  - project1
-  - project2
+  team_id: 123456  # 请替换为您的团队 ID
+  token: your_coding_token_here  # 请替换为您的实际 token
+
+  # Maven 仓库认证配置（如果需要）
+  # 当 CODING Maven 仓库需要认证时配置
+  maven_repositories:
+    your-repo-name:
+      username: "your_username"
+      password: "your_password"
+
+  # Maven 包过滤配置（可选）
+  # 用于过滤只迁移符合条件的包，支持正则表达式
+  maven_filter:
+    enabled: false      # 是否启用包过滤
+    patterns:           # 过滤规则列表
+      - "com.yourcompany.*"
+      - "org.yourorg.*"
+
+  # 分页控制配置 - 重要：确保获取所有数据
+  # 控制 CODING API 分页参数，影响数据获取的完整性
+  pagination:
+    page_size: 100       # 每页获取的包数量（建议100-500）
+    max_pages: 1000      # 最大页数限制（防止无限循环，建议设置较大值）
+
+  # 性能优化配置 - 内存流水线模式
+  # 控制内存流水线模式的性能参数
+  performance:
+    max_workers: 12      # 并发工作线程数（内存流水线模式）
+    memory_limit_mb: 100 # 内存使用限制（MB）
+
+  # 速率限制配置
+  # 控制 CODING API 请求频率，避免触发限速
+  rate_limit:
+    requests_per_second: 25  # 请求速率限制（CODING限制是30 req/s）
+
+# Nexus 配置
+# 目标 Nexus 仓库的连接信息
 nexus:
-  password: admin123
-  repository: maven-releases
-  url: http://localhost:8081
-  username: admin
+  url: http://localhost:8081  # Nexus 服务器地址
+  username: admin             # Nexus 用户名
+  password: admin123          # Nexus 密码
+  release_repo: maven-releases      # Release 版本仓库名称
+  snapshot_repo: maven-snapshots    # Snapshot 版本仓库名称
+
+# 迁移配置
+migration:
+  # 要迁移的项目列表，空列表表示迁移所有项目
+  project_names:
+    - project1
+    - project2
+
+  # 以下配置项仅用于标准模式 -- 内存流水线模式不需要这些配置
+  # 标准模式：先下载到本地磁盘，再上传到 Nexus
+  # 内存流水线模式：直接在内存中传输，零磁盘占用
+
+  # 下载路径（标准模式专用）
+  download_path: "./target/downloads"  # 制品下载到本地的路径
+
+  # 批处理大小（标准模式专用）
+  batch_size: 50                     # 批量上传的制品数量
+
+  # 并发下载数（标准模式专用）
+  parallel_downloads: 10             # 并发下载的线程数
+
+# 日志配置
+logging:
+  level: "INFO"                      # 日志级别：DEBUG, INFO, WARNING, ERROR
+  file: "target/migration.log"       # 日志文件路径
+  max_size_mb: 10                    # 日志文件最大大小（MB）
+  backup_count: 5                    # 保留备份文件数量

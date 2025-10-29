@@ -223,51 +223,64 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
             click.echo("⚡ 使用内存流水线模式（零磁盘占用）")
             migrator = MemoryPipelineMigrator(config)
 
+            # 确定要迁移的项目列表
+            # 优先级：命令行参数 > 配置文件 > 所有项目
+            target_project_names = None
+
             if projects:
-                project_names = [p.strip() for p in projects.split(',')]
-                for project_name in project_names:
-                    click.echo(f"\n🚀 开始内存迁移项目: {project_name}")
-
-                    # 获取项目ID
-                    try:
-                        projects_list = migrator.coding_client.get_projects()
-                        target_project = None
-                        for project in projects_list:
-                            if project.name == project_name:
-                                target_project = project
-                                break
-
-                        if not target_project:
-                            click.echo(f"❌ 未找到项目: {project_name}")
-                            continue
-
-                        result = migrator.migrate_project(target_project.id, project_name)
-                        _display_result(result)
-
-                    except Exception as e:
-                        click.echo(f"❌ 获取项目信息失败: {e}")
-                        continue
+                # 1. 使用命令行指定的项目
+                target_project_names = [p.strip() for p in projects.split(',')]
+                click.echo(f"📋 使用命令行指定的项目: {', '.join(target_project_names)}")
+            elif config.project_names:
+                # 2. 使用配置文件中的项目列表
+                target_project_names = config.project_names
+                click.echo(f"📋 使用配置文件中的项目: {', '.join(target_project_names)}")
             else:
-                # 自动获取所有项目
-                click.echo("🔍 未指定项目，自动获取所有项目进行迁移")
-                try:
-                    projects_list = migrator.coding_client.get_projects()
-                    if not projects_list:
-                        click.echo("❌ 未找到任何项目")
-                        sys.exit(1)
+                # 3. 迁移所有项目
+                click.echo("🔍 未指定项目，将迁移所有项目")
 
-                    click.echo(f"📋 找到 {len(projects_list)} 个项目，将依次迁移:")
+            # 获取完整的项目列表用于查找
+            projects_list = migrator.coding_client.get_all_projects()
+            if not projects_list:
+                click.echo("❌ 未找到任何项目")
+                sys.exit(1)
+
+            # 如果指定了项目名称，过滤项目列表
+            if target_project_names:
+                click.echo(f"📋 找到 {len(projects_list)} 个项目，将迁移以下指定项目:")
+                matched_projects = []
+
+                for project_name in target_project_names:
+                    found = False
                     for project in projects_list:
-                        click.echo(f"  - {project.name} (ID: {project.id})")
+                        if project.name == project_name:
+                            matched_projects.append(project)
+                            click.echo(f"  - {project.name} (ID: {project.id})")
+                            found = True
+                            break
 
-                    for project in projects_list:
-                        click.echo(f"\n🚀 开始内存迁移项目: {project.name}")
-                        result = migrator.migrate_project(project.id, project.name)
-                        _display_result(result)
+                    if not found:
+                        click.echo(f"  ⚠️  未找到项目: {project_name}")
 
-                except Exception as e:
-                    click.echo(f"❌ 获取项目列表失败: {e}")
+                if not matched_projects:
+                    click.echo("❌ 没有找到任何匹配的项目")
                     sys.exit(1)
+
+                # 只迁移匹配的项目
+                for project in matched_projects:
+                    click.echo(f"\n🚀 开始内存迁移项目: {project.name}")
+                    result = migrator.migrate_project(project.id, project.name)
+                    _display_result(result)
+            else:
+                # 迁移所有项目
+                click.echo(f"📋 找到 {len(projects_list)} 个项目，将依次迁移:")
+                for project in projects_list:
+                    click.echo(f"  - {project.name} (ID: {project.id})")
+
+                for project in projects_list:
+                    click.echo(f"\n🚀 开始内存迁移项目: {project.name}")
+                    result = migrator.migrate_project(project.id, project.name)
+                    _display_result(result)
 
     except Exception as e:
         click.echo(f"❌ 迁移失败: {e}", err=True)

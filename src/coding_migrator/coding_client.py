@@ -352,9 +352,8 @@ class CodingClient:
 
         # 首先获取 Maven 制品版本列表
         try:
-            # 使用配置的分页参数
-            max_pages = self.pagination_config.max_pages if self.pagination_config else 50
-            versions = self.get_maven_versions(project_id, repository_name, filter_config, max_pages)
+            # 使用配置的分页参数，传递 None 让方法内部使用配置
+            versions = self.get_maven_versions(project_id, repository_name, filter_config)
             logger.info(f"Found {len(versions)} Maven package versions")
 
             # 获取项目名称用于文件列表查询
@@ -518,7 +517,7 @@ class CodingClient:
             logger.warning(f"Failed to get Maven packages: {e}")
             return []
 
-    def get_maven_versions(self, project_id: int, repository_name: str, filter_config: Optional[MavenFilterConfig] = None, max_pages: int = 10) -> List[Dict[str, Any]]:
+    def get_maven_versions(self, project_id: int, repository_name: str, filter_config: Optional[MavenFilterConfig] = None, max_pages: int = None) -> List[Dict[str, Any]]:
         """
         获取 Maven 制品版本列表
 
@@ -526,38 +525,77 @@ class CodingClient:
             project_id: 项目 ID
             repository_name: 仓库名称
             filter_config: Maven 过滤配置
-            max_pages: 最大页数限制，防止无限循环
+            max_pages: 最大页数限制，防止无限循环，默认使用配置文件中的值
 
         Returns:
             Maven 制品版本列表
         """
         logger.info(f"Fetching Maven versions for project {project_id}, repository {repository_name}")
 
+        # 使用配置文件中的最大页数限制，如果没有配置则使用更大的默认值
+        if max_pages is None:
+            max_pages = self.pagination_config.max_pages if self.pagination_config else 1000
+
+        logger.info(f"Using max_pages limit: {max_pages}")
+
         try:
             # 直接使用 DescribeTeamArtifacts API 获取包和版本信息，获取所有页
             all_packages = []
             page_number = 1
-            page_size = 100
+            page_size = self.pagination_config.page_size if self.pagination_config else 100
+
+            consecutive_empty_pages = 0  # 连续空页面计数器，防止某些情况下API异常
+            max_consecutive_empty = 3    # 最大连续空页面数
 
             while page_number <= max_pages:
+                logger.debug(f"Fetching page {page_number}/{max_pages} with page_size {page_size}")
+
                 packages = self.get_maven_packages(project_id, repository_name, filter_config, page_number, page_size)
+
                 if not packages:
-                    logger.info(f"No more packages found after page {page_number-1}")
-                    break
+                    consecutive_empty_pages += 1
+                    logger.info(f"No packages found on page {page_number}")
+
+                    # 如果连续多个页面都为空，认为真的没有更多数据了
+                    if consecutive_empty_pages >= max_consecutive_empty:
+                        logger.info(f"No packages found for {max_consecutive_empty} consecutive pages, stopping pagination")
+                        break
+
+                    # 继续尝试下一页，可能是API异常
+                    page_number += 1
+                    continue
+                else:
+                    consecutive_empty_pages = 0  # 重置空页面计数器
 
                 all_packages.extend(packages)
-                logger.info(f"Retrieved {len(packages)} packages from page {page_number}")
+                logger.info(f"Retrieved {len(packages)} packages from page {page_number}, total so far: {len(all_packages)}")
 
-                # 如果返回的包数量小于页面大小，说明已经是最后一页
+                # 更健壮的分页终止条件：
+                # 1. 如果返回的包数量小于页面大小，可能是最后一页，但需要再验证一次
+                # 2. 如果返回的包数量等于页面大小，继续获取下一页
                 if len(packages) < page_size:
-                    logger.info(f"Reached last page (got {len(packages)} packages < page_size {page_size})")
-                    break
+                    logger.info(f"Got {len(packages)} packages < page_size {page_size}, checking if this is really the last page")
+
+                    # 再获取一页来确认是否真的到最后一页了
+                    # 这处理了API正好返回page_size整数倍数据的情况
+                    next_page_packages = self.get_maven_packages(project_id, repository_name, filter_config, page_number + 1, page_size)
+                    if not next_page_packages:
+                        logger.info(f"Confirmed: page {page_number} is the last page")
+                        break
+                    else:
+                        logger.info(f"There are more packages after page {page_number}, continuing pagination")
+                        # 如果下一页有数据，说明当前页不是最后一页，继续处理
+                        all_packages.extend(next_page_packages)
+                        logger.info(f"Retrieved {len(next_page_packages)} packages from page {page_number + 1}, total so far: {len(all_packages)}")
+                        page_number += 2  # 跳过已经处理的下一页
+                        continue
 
                 page_number += 1
 
             # 检查是否因为达到最大页数限制而停止
             if page_number > max_pages:
-                logger.warning(f"Reached maximum page limit ({max_pages}), some packages may be missing")
+                logger.warning(f"⚠️  Reached maximum page limit ({max_pages}), some packages may be missing!")
+                logger.warning(f"Consider increasing 'pagination.max_pages' in config.yaml if you expect more data")
 
             packages = all_packages
 
@@ -579,7 +617,8 @@ class CodingClient:
                 }
                 versions.append(version_info)
 
-            logger.info(f"Found {len(versions)} total versions across all packages in repository {repository_name}")
+            logger.info(f"✅ Found {len(versions)} total versions across all packages in repository {repository_name}")
+            logger.info(f"   Retrieved from {page_number-1} pages")
             return versions
 
         except Exception as e:
