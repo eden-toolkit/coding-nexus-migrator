@@ -230,7 +230,10 @@ class ConfigManager:
             },
             'logging': {
                 'level': 'INFO',
-                'file': 'migration.log'
+                'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                'file': 'target/migration.log',
+                'max_size_mb': 10,
+                'backup_count': 5
             }
         }
 

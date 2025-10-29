@@ -16,14 +16,80 @@ from .migrator import MavenMigrator
 from .memory_pipeline_migrator import MemoryPipelineMigrator
 
 
-def setup_logging(verbose: bool = False):
+def setup_logging(verbose: bool = False, log_file: str = None, max_size_mb: int = 10, backup_count: int = 5):
     """设置日志配置"""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+
+    # 清除现有的处理器
+    logger = logging.getLogger()
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+
+    # 设置根logger
+    logger.setLevel(level)
+
+    # 创建格式化器
+    formatter = logging.Formatter(
+        fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
+
+    # 控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # 文件处理器（带轮转）
+    if log_file:
+        from logging.handlers import RotatingFileHandler
+
+        # 确保日志目录存在
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        file_handler = RotatingFileHandler(
+            filename=log_path,
+            maxBytes=max_size_mb * 1024 * 1024,  # 转换为字节
+            backupCount=backup_count,
+            encoding='utf-8'
+        )
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+        logger.info(f"日志文件: {log_path} (最大 {max_size_mb}MB, 保留 {backup_count} 个备份)")
+
+    return logger
+
+
+def load_logging_config(config_file: str):
+    """从配置文件加载日志配置"""
+    try:
+        import yaml
+        config_path = Path(config_file)
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_data = yaml.safe_load(f)
+
+            # 从配置文件中读取日志配置
+            logging_config = config_data.get('logging', {})
+            return {
+                'log_file': logging_config.get('file', 'target/migration.log'),
+                'max_size_mb': logging_config.get('max_size_mb', 10),
+                'backup_count': logging_config.get('backup_count', 5),
+                'level': logging_config.get('level', 'INFO')
+            }
+    except Exception as e:
+        # 如果读取失败，使用默认配置
+        logger = logging.getLogger(__name__)
+        logger.warning(f"无法读取日志配置，使用默认设置: {e}")
+        return {
+            'log_file': 'target/migration.log',
+            'max_size_mb': 10,
+            'backup_count': 5,
+            'level': 'INFO'
+        }
 
 
 @click.group()
@@ -48,7 +114,20 @@ def cli(ctx, config, verbose):
     ctx.obj['config_file'] = config
     ctx.obj['verbose'] = verbose
 
-    setup_logging(verbose)
+    # 加载日志配置
+    logging_config = load_logging_config(config)
+    ctx.obj['logging_config'] = logging_config
+
+    # 设置日志级别
+    log_level = logging_config.get('level', 'INFO')
+    verbose = verbose or (log_level.upper() == 'DEBUG')
+
+    setup_logging(
+        verbose=verbose,
+        log_file=logging_config['log_file'],
+        max_size_mb=logging_config['max_size_mb'],
+        backup_count=logging_config['backup_count']
+    )
 
 
 @cli.command()
@@ -169,9 +248,26 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
                         click.echo(f"❌ 获取项目信息失败: {e}")
                         continue
             else:
-                click.echo("❌ 内存流水线模式需要指定项目名称")
-                click.echo("使用 --projects 参数指定项目，或使用标准模式")
-                sys.exit(1)
+                # 自动获取所有项目
+                click.echo("🔍 未指定项目，自动获取所有项目进行迁移")
+                try:
+                    projects_list = migrator.coding_client.get_projects()
+                    if not projects_list:
+                        click.echo("❌ 未找到任何项目")
+                        sys.exit(1)
+
+                    click.echo(f"📋 找到 {len(projects_list)} 个项目，将依次迁移:")
+                    for project in projects_list:
+                        click.echo(f"  - {project.name} (ID: {project.id})")
+
+                    for project in projects_list:
+                        click.echo(f"\n🚀 开始内存迁移项目: {project.name}")
+                        result = migrator.migrate_project(project.id, project.name)
+                        _display_result(result)
+
+                except Exception as e:
+                    click.echo(f"❌ 获取项目列表失败: {e}")
+                    sys.exit(1)
 
     except Exception as e:
         click.echo(f"❌ 迁移失败: {e}", err=True)

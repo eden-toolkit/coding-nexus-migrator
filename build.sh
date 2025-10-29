@@ -1,7 +1,7 @@
 #!/bin/bash
 # 快速构建脚本
 
-echo "=== 构建Maven迁移工具分发包 ==="
+echo "=== 构建工具分发包 ==="
 
 # 安装构建工具
 pip install build
