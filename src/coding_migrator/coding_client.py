@@ -37,7 +37,6 @@ class CodingClient:
         self.pagination_config = pagination_config
         self.max_workers = max_workers
         self.base_url = "https://e.coding.net/open-api/"
-        self.maven_base_url = "https://puyifund-maven.pkg.coding.net"
 
         # 速率限制控制 (30 req/s 限制，我们使用 25 req/s 留出安全边际)
         self.rate_limiter = threading.Semaphore(25)
@@ -617,7 +616,7 @@ class CodingClient:
                 }
                 versions.append(version_info)
 
-            logger.info(f"✅ Found {len(versions)} total versions across all packages in repository {repository_name}")
+            logger.info(f"[OK] Found {len(versions)} total versions across all packages in repository {repository_name}")
             logger.info(f"   Retrieved from {page_number-1} pages")
             return versions
 
@@ -683,7 +682,7 @@ class CodingClient:
 
             logger.debug(f"Found {len(artifacts)} files for {package_name}:{package_version}")
             if artifacts:
-                logger.debug(f"📦 Found {len(artifacts)} artifacts for {package_name}:{package_version}")
+                logger.debug(f"[INFO] Found {len(artifacts)} artifacts for {package_name}:{package_version}")
                 for i, artifact in enumerate(artifacts[:3], 1):  # 显示前3个文件
                     logger.debug(f"  {i}. {artifact.download_url.split('/')[-1]}")
                 if len(artifacts) > 3:
@@ -765,21 +764,7 @@ class CodingClient:
         # 构建标准 Maven 文件路径
         return f"{group_path}/{artifact_id}/{package_version}/{artifact_id}-{package_version}.jar"
 
-    def _build_download_url(self, project_id: int, repository_name: str, file_path: str) -> str:
-        """
-        构建 CODING 下载 URL
-
-        Args:
-            project_id: 项目 ID
-            repository_name: 仓库名称
-            file_path: 文件路径
-
-        Returns:
-            下载 URL
-        """
-        # 构建 CODING 标准下载 URL
-        return f"https://{self.team_id}.coding.net/p/{project_id}/d/artifacts/{repository_name}/raw/{file_path}"
-
+    
     def _parse_maven_path(self, file_path: str) -> Optional[MavenArtifact]:
         """
         解析 Maven 文件路径获取坐标信息
@@ -832,7 +817,7 @@ class CodingClient:
             repository=None  # 这个方法无法确定仓库，设为None
         )
 
-    def download_artifact(self, project_id: int, repository_name: str, file_path: str, output_path: str, download_url: str = None) -> bool:
+    def download_artifact(self, project_id: int, repository_name: str, file_path: str, output_path: str, download_url: str) -> bool:
         """
         下载制品文件
 
@@ -841,43 +826,89 @@ class CodingClient:
             repository_name: 仓库名称
             file_path: 文件路径
             output_path: 输出路径
-            download_url: 下载 URL（可选，优先使用）
+            download_url: 下载 URL（必须由 API 提供）
 
         Returns:
             下载是否成功
         """
         logger.info(f"Downloading artifact: {file_path}")
 
-        # 优先使用 API 提供的下载 URL
-        if download_url:
-            target_url = download_url
-        else:
-            # 构建 CODING 标准下载 URL
-            target_url = f"https://{self.team_id}.coding.net/p/{project_id}/d/artifacts/{repository_name}/raw/{file_path}"
+        # 使用 project_id 来获取项目名称（用于回退）
+        project_name = self.get_project_name_by_id(project_id)
+
+        # 只使用 API 提供的下载 URL
+        if not download_url:
+            logger.error("No download URL provided by API")
+            return False
+
+        target_url = download_url
 
         try:
             logger.debug(f"Downloading from: {target_url}")
 
             # 为 Maven 仓库下载添加基本认证
             auth = None
-            if target_url.startswith(self.maven_base_url):
-                # 确定使用哪个仓库的认证信息
-                repo_key = None
-                if repository_name == "releases":
-                    repo_key = "puyifund-platform-releases"
-                elif repository_name == "snapshots":
-                    repo_key = "puyifund-platform-snapshots"
+            project_name = self.get_project_name_by_id(project_id)
 
-                if repo_key and repo_key in self.maven_repositories:
-                    repo_config = self.maven_repositories[repo_key]
-                    auth = (repo_config.username, repo_config.password)
-                    logger.debug(f"Using basic auth for repository: {repo_key}")
+            # 检查是否为 Maven 仓库 URL（包含 .pkg.coding.net）
+            if ".pkg.coding.net" in target_url:
+                # 从 URL 路径中提取项目名称
+                # URL 格式: https://domain.pkg.coding.net/repository/project-name/repo-name/...
+                import re
+                url_pattern = r'https://[^/]+/repository/([^/]+)/([^/]+)/'
+                match = re.search(url_pattern, target_url)
 
+                if match:
+                    url_project_name = match.group(1)  # URL路径中的项目名称
+                    url_repo_name = match.group(2)     # URL路径中的仓库名称
+                    # 优先使用URL中的项目名称来匹配认证信息
+                    if url_project_name and url_project_name in self.maven_repositories:
+                        project_repos = self.maven_repositories[url_project_name]
+                        # 处理嵌套配置对象
+                        if hasattr(project_repos, url_repo_name):
+                            repo_config = getattr(project_repos, url_repo_name)
+                            auth = (repo_config.username, repo_config.password)
+                            logger.info(f"Using auth for URL project: {url_project_name}, repo: {url_repo_name}")
+                        else:
+                            logger.warning(f"No auth found for repository: {url_repo_name} in URL project: {url_project_name}")
+                    else:
+                        logger.warning(f"No auth configuration found for URL project: {url_project_name}")
+                        # 回退到使用 project_id 对应的项目名称
+                        if project_name and project_name in self.maven_repositories:
+                            project_repos = self.maven_repositories[project_name]
+                            if hasattr(project_repos, repository_name):
+                                repo_config = getattr(project_repos, repository_name)
+                                auth = (repo_config.username, repo_config.password)
+                                logger.info(f"Using fallback auth for project: {project_name}, repo: {repository_name}")
+                            else:
+                                logger.warning(f"No auth found for repository: {repository_name} in fallback project: {project_name}")
+                        else:
+                            logger.warning(f"No auth configuration found for fallback project: {project_name}")
+                else:
+                    # 如果无法从URL提取，使用原有逻辑
+                    logger.warning(f"Could not extract project/repo from URL: {target_url}")
+                    if project_name and project_name in self.maven_repositories:
+                        project_repos = self.maven_repositories[project_name]
+                        if hasattr(project_repos, repository_name):
+                            repo_config = getattr(project_repos, repository_name)
+                            auth = (repo_config.username, repo_config.password)
+                            logger.info(f"Using basic auth for project: {project_name}, repo: {repository_name}")
+                            logger.info(f"Auth username: {repo_config.username}")
+                        else:
+                            logger.warning(f"No auth found for repository: {repository_name} in project: {project_name}")
+                    else:
+                        logger.warning(f"No auth configuration found for project: {project_name}")
+            else:
+                logger.debug(f"Not a Maven repository URL, skipping auth: {target_url}")
+
+            logger.info(f"Final auth: {'None' if auth is None else f'username={auth[0]}'}")
             response = self.session.get(target_url, stream=True, auth=auth)
             response.raise_for_status()
 
             # 确保输出目录存在
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            output_dir = os.path.dirname(output_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
 
             with open(output_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):

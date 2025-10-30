@@ -10,9 +10,10 @@ coding:
   # Maven 仓库认证配置（如果需要）
   # 当 CODING Maven 仓库需要认证时配置
   maven_repositories:
-    your-repo-name:
-      username: "your_username"
-      password: "your_password"
+    your-coding-project: # CODING 项目名称
+      your-repo-name: # CODING 制品仓库名称
+        username: "your_username"
+        password: "your_password"
 
   # Maven 包过滤配置（可选）
   # 用于过滤只迁移符合条件的包，支持正则表达式

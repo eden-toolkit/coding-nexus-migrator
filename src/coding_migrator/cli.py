@@ -138,11 +138,11 @@ def init_config(output):
     try:
         config_manager = ConfigManager()
         config_manager.create_sample_config(output)
-        click.echo(f"✅ 示例配置文件已创建: {output}")
+        click.echo(f"[OK] 示例配置文件已创建: {output}")
         click.echo("请编辑配置文件，填入您的实际配置信息。")
         click.echo("\n💡 提示：也可以使用环境变量替代配置文件中的敏感信息")
     except Exception as e:
-        click.echo(f"❌ 创建配置文件失败: {e}", err=True)
+        click.echo(f"[ERROR] 创建配置文件失败: {e}", err=True)
         sys.exit(1)
 
 
@@ -163,12 +163,12 @@ def list_projects(ctx):
         for project in projects:
             click.echo(f"ID: {project.id}")
             click.echo(f"名称: {project.name}")
-            click.echo(f"显示名: {project.display_name}")
+            click.echo(f"显示: {project.display_name}")
             click.echo(f"描述: {project.description}")
             click.echo("-" * 40)
 
     except Exception as e:
-        click.echo(f"❌ 获取项目列表失败: {e}", err=True)
+        click.echo(f"[ERROR] 获取项目列表失败: {e}", err=True)
         sys.exit(1)
 
 
@@ -196,7 +196,7 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
             config.maven_filter.patterns = filter_patterns
 
         if dry_run:
-            click.echo("🔍 试运行模式 - 只查看要迁移的制品")
+            click.echo("[SEARCH] 试运行模式 - 只查看要迁移的制品")
 
         if standard_mode:
             click.echo("📁 使用标准模式（下载到本地）")
@@ -205,15 +205,15 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
             if projects:
                 project_names = [p.strip() for p in projects.split(',')]
                 for project_name in project_names:
-                    click.echo(f"\n🚀 开始迁移项目: {project_name}")
-                    result = migrator.migrate_project(
+                    click.echo(f"\n[START] 开始迁移项目: {project_name}")
+                    result = migrator.migrate_project_cli(
                         project_name,
                         cleanup=cleanup,
                         dry_run=dry_run
                     )
                     _display_result(result)
             else:
-                click.echo("🚀 开始迁移所有配置的项目")
+                click.echo("[START] 开始迁移所有配置的项目")
                 result = migrator.migrate_all(
                     cleanup=cleanup,
                     dry_run=dry_run
@@ -237,12 +237,12 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
                 click.echo(f"📋 使用配置文件中的项目: {', '.join(target_project_names)}")
             else:
                 # 3. 迁移所有项目
-                click.echo("🔍 未指定项目，将迁移所有项目")
+                click.echo("[SEARCH] 未指定项目，将迁移所有项目")
 
             # 获取完整的项目列表用于查找
             projects_list = migrator.coding_client.get_all_projects()
             if not projects_list:
-                click.echo("❌ 未找到任何项目")
+                click.echo("[ERROR] 未找到任何项目")
                 sys.exit(1)
 
             # 如果指定了项目名称，过滤项目列表
@@ -263,12 +263,12 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
                         click.echo(f"  ⚠️  未找到项目: {project_name}")
 
                 if not matched_projects:
-                    click.echo("❌ 没有找到任何匹配的项目")
+                    click.echo("[ERROR] 没有找到任何匹配的项目")
                     sys.exit(1)
 
                 # 只迁移匹配的项目
                 for project in matched_projects:
-                    click.echo(f"\n🚀 开始内存迁移项目: {project.name}")
+                    click.echo(f"\n[START] 开始内存迁移项目: {project.name}")
                     result = migrator.migrate_project(project.id, project.name)
                     _display_result(result)
             else:
@@ -278,12 +278,12 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
                     click.echo(f"  - {project.name} (ID: {project.id})")
 
                 for project in projects_list:
-                    click.echo(f"\n🚀 开始内存迁移项目: {project.name}")
+                    click.echo(f"\n[START] 开始内存迁移项目: {project.name}")
                     result = migrator.migrate_project(project.id, project.name)
                     _display_result(result)
 
     except Exception as e:
-        click.echo(f"❌ 迁移失败: {e}", err=True)
+        click.echo(f"[ERROR] 迁移失败: {e}", err=True)
         if ctx.obj['verbose']:
             import traceback
             traceback.print_exc()
@@ -304,7 +304,7 @@ def migrate_all(ctx, cleanup):
         _display_result(result)
 
     except Exception as e:
-        click.echo(f"❌ 迁移失败: {e}", err=True)
+        click.echo(f"[ERROR] 迁移失败: {e}", err=True)
         sys.exit(1)
 
 
@@ -323,7 +323,7 @@ def migrate_memory_pipeline(ctx, project_name, cleanup):
         _display_result(result)
 
     except Exception as e:
-        click.echo(f"❌ 内存迁移失败: {e}", err=True)
+        click.echo(f"[ERROR] 内存迁移失败: {e}", err=True)
         sys.exit(1)
 
 
@@ -338,18 +338,43 @@ def repository_info(ctx):
         migrator = MavenMigrator(config)
         repositories = migrator.get_repository_info()
 
-        click.echo("📦 Nexus仓库信息:")
+        click.echo("[INFO] Nexus仓库信息:")
         click.echo("=" * 60)
 
-        for repo in repositories:
-            click.echo(f"名称: {repo.get('name', 'N/A')}")
-            click.echo(f"格式: {repo.get('format', 'N/A')}")
-            click.echo(f"类型: {repo.get('type', 'N/A')}")
-            click.echo(f"URL: {repo.get('url', 'N/A')}")
-            click.echo("-" * 40)
+        if isinstance(repositories, dict):
+            # 检查是否是多个仓库的信息（新格式）
+            if 'name' not in repositories:
+                # 多个仓库的情况
+                click.echo(f"找到 {len(repositories)} 个 Maven 仓库:")
+                click.echo()
+                for repo_name, repo_data in repositories.items():
+                    click.echo(f"仓库名称: {repo_data.get('name', 'Unknown')}")
+                    click.echo(f"仓库格式: {repo_data.get('format', 'Unknown')}")
+                    click.echo(f"仓库类型: {repo_data.get('type', 'Unknown')}")
+                    click.echo(f"仓库URL: {repo_data.get('url', 'Unknown')}")
+                    click.echo(f"仓库大小: {repo_data.get('size', 0)} bytes")
+                    click.echo(f"制品数量: {repo_data.get('count', 0)}")
+                    click.echo("-" * 40)
+            else:
+                # 单个仓库的情况（向后兼容）
+                click.echo(f"仓库名称: {repositories.get('name', 'Unknown')}")
+                click.echo(f"仓库格式: {repositories.get('format', 'Unknown')}")
+                click.echo(f"仓库类型: {repositories.get('type', 'Unknown')}")
+                click.echo(f"仓库URL: {repositories.get('url', 'Unknown')}")
+                click.echo(f"仓库大小: {repositories.get('size', 0)} bytes")
+        elif isinstance(repositories, list):
+            # 列表格式（旧格式兼容）
+            for repo in repositories:
+                click.echo(f"名称: {repo.get('name', 'N/A')}")
+                click.echo(f"格式: {repo.get('format', 'N/A')}")
+                click.echo(f"类型: {repo.get('type', 'N/A')}")
+                click.echo(f"URL: {repo.get('url', 'N/A')}")
+                click.echo("-" * 40)
+        else:
+            click.echo(f"仓库信息: {repositories}")
 
     except Exception as e:
-        click.echo(f"❌ 获取仓库信息失败: {e}", err=True)
+        click.echo(f"[ERROR] 获取仓库信息失败: {e}", err=True)
         sys.exit(1)
 
 
@@ -359,18 +384,18 @@ def verify_config(ctx):
     """验证配置文件和环境变量"""
     try:
         config_file = ctx.obj['config_file']
-        click.echo(f"🔍 验证配置文件: {config_file}")
+        click.echo(f"[SEARCH] 验证配置文件: {config_file}")
 
         # 检查配置文件是否存在
         if not Path(config_file).exists():
-            click.echo(f"❌ 配置文件不存在: {config_file}")
+            click.echo(f"[ERROR] 配置文件不存在: {config_file}")
             sys.exit(1)
 
         # 尝试加载配置
         config_manager = ConfigManager(config_file)
         config = config_manager.load_config_with_env()
 
-        click.echo("✅ 配置文件格式正确")
+        click.echo("[OK] 配置文件格式正确")
 
         # 检查环境变量
         env_vars = {
@@ -385,16 +410,16 @@ def verify_config(ctx):
         for var, value in env_vars.items():
             if value:
                 if var in ['CODING_TOKEN', 'NEXUS_PASSWORD']:
-                    click.echo(f"✅ {var}: ***已设置***")
+                    click.echo(f"[OK] {var}: ***已设置***")
                 else:
-                    click.echo(f"✅ {var}: {value}")
+                    click.echo(f"[OK] {var}: {value}")
             else:
                 click.echo(f"⚠️  {var}: 未设置（将从配置文件读取）")
 
         click.echo("\n🎯 配置验证完成！")
 
     except Exception as e:
-        click.echo(f"❌ 配置验证失败: {e}", err=True)
+        click.echo(f"[ERROR] 配置验证失败: {e}", err=True)
         sys.exit(1)
 
 

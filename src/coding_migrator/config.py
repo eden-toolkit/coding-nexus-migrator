@@ -66,11 +66,30 @@ class ConfigManager:
             # 构建 Maven 仓库认证配置
             maven_repositories_data = config_data['coding'].get('maven_repositories', {})
             maven_repositories = {}
-            for repo_name, repo_config in maven_repositories_data.items():
-                maven_repositories[repo_name] = MavenRepositoryConfig(
-                    username=repo_config['username'],
-                    password=repo_config['password']
-                )
+            for project_name, project_data in maven_repositories_data.items():
+                # 检查是否为新的嵌套格式
+                if 'releases' in project_data or 'snapshots' in project_data:
+                    # 新格式：project_name -> {releases: {...}, snapshots: {...}}
+                    project_config = {}
+                    if 'releases' in project_data:
+                        releases_data = project_data['releases']
+                        project_config['releases'] = MavenRepositoryConfig(
+                            username=releases_data['username'],
+                            password=releases_data['password']
+                        )
+                    if 'snapshots' in project_data:
+                        snapshots_data = project_data['snapshots']
+                        project_config['snapshots'] = MavenRepositoryConfig(
+                            username=snapshots_data['username'],
+                            password=snapshots_data['password']
+                        )
+                    maven_repositories[project_name] = project_config
+                else:
+                    # 旧格式：repo_name -> {username: ..., password: ...}
+                    maven_repositories[project_name] = MavenRepositoryConfig(
+                        username=project_data['username'],
+                        password=project_data['password']
+                    )
 
             # 构建性能优化配置
             performance_data = config_data['coding'].get('performance', {})

@@ -236,22 +236,22 @@ class MemoryPipelineMigrator:
         logger.info("=" * 60)
         logger.info("📊 MEMORY PIPELINE MIGRATION SUMMARY")
         logger.info("=" * 60)
-        logger.info(f"✅ Total artifacts processed: {self.stats['total_artifacts']}")
+        logger.info(f"[OK] Total artifacts processed: {self.stats['total_artifacts']}")
         logger.info(f"⬇️  Downloaded: {self.stats['downloaded']}")
         logger.info(f"⬆️  Uploaded: {self.stats['uploaded']}")
         logger.info(f"⏭️  Skipped (already uploaded): {self.stats['skipped_existing']}")
-        logger.info(f"❌ Download failed: {self.stats['download_failed']}")
-        logger.info(f"❌ Upload failed: {self.stats['upload_failed']}")
+        logger.info(f"[ERROR] Download failed: {self.stats['download_failed']}")
+        logger.info(f"[ERROR] Upload failed: {self.stats['upload_failed']}")
         logger.info("=" * 60)
 
     def _display_uploaded_dependencies_summary(self) -> None:
         """显示已上传依赖的汇总信息"""
         if not self.uploaded_dependencies:
-            logger.info("📦 No new dependencies uploaded in this session")
+            logger.info("[INFO] No new dependencies uploaded in this session")
             return
 
         logger.info("")
-        logger.info("📦 UPLOADED DEPENDENCIES SUMMARY")
+        logger.info("[INFO] UPLOADED DEPENDENCIES SUMMARY")
         logger.info("=" * 60)
 
         # 按group_id和artifact_id分组显示
@@ -460,7 +460,7 @@ class MemoryPipelineMigrator:
                                 self.uploaded_hashes.add(maven_hash)
 
                                 # 清晰显示上传成功的依赖
-                                logger.info(f"✅ UPLOADED DEPENDENCY: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version} ({task.artifact.packaging})")
+                                logger.info(f"[OK] UPLOADED DEPENDENCY: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version} ({task.artifact.packaging})")
                                 logger.info(f"   Repository: {repository_name}")
                                 logger.info(f"   Filename: {file_name}")
 

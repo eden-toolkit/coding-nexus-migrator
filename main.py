@@ -49,19 +49,25 @@ def list_projects(ctx):
     """列出所有可用的项目"""
     try:
         config_file = ctx.obj['config_file']
-        migrator = MavenMigrator(ConfigManager())
-        migrator.initialize(config_file)
+        config_manager = ConfigManager(config_file)
+        config = config_manager.load_config_with_env()
+        migrator = MavenMigrator(config)
 
-        projects = migrator.list_projects()
+        projects = migrator.get_projects()
         click.echo("可用的项目:")
         if projects:
             for i, project in enumerate(projects, 1):
-                click.echo(f"  {i}. {project}")
+                click.echo(f"  {i}. {project.name} (ID: {project.id})")
+                if hasattr(project, 'display_name') and project.display_name:
+                    click.echo(f"     {project.display_name}")
         else:
             click.echo("未找到任何项目")
 
     except Exception as e:
         click.echo(f"获取项目列表失败: {e}", err=True)
+        if ctx.obj['verbose']:
+            import traceback
+            traceback.print_exc()
         sys.exit(1)
 
 
@@ -71,14 +77,15 @@ def test_connections(ctx):
     """测试连接"""
     try:
         config_file = ctx.obj['config_file']
-        migrator = MavenMigrator(ConfigManager())
-        migrator.initialize(config_file)
+        config_manager = ConfigManager(config_file)
+        config = config_manager.load_config_with_env()
+        migrator = MavenMigrator(config)
 
         results = migrator.test_connections()
 
         click.echo("连接测试结果:")
         for service, status in results.items():
-            status_icon = "✅" if status else "❌"
+            status_icon = "[OK]" if status else "[ERROR]"
             status_text = "成功" if status else "失败"
             click.echo(f"  {service.upper()}: {status_icon} {status_text}")
 
@@ -88,6 +95,58 @@ def test_connections(ctx):
 
     except Exception as e:
         click.echo(f"测试连接失败: {e}", err=True)
+        if ctx.obj['verbose']:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@cli.command()
+@click.pass_context
+def repository_info(ctx):
+    """显示Nexus仓库信息"""
+    repository_info = None  # 在 try 块外初始化变量
+
+    try:
+        config_file = ctx.obj['config_file']
+        config_manager = ConfigManager(config_file)
+        config = config_manager.load_config_with_env()
+        migrator = MavenMigrator(config)
+
+        repository_info = migrator.get_repository_info()
+
+        click.echo("Nexus仓库信息:")
+        click.echo("=" * 50)
+
+        if isinstance(repository_info, dict):
+            # 检查是否是多个仓库的信息
+            if 'name' not in repository_info:
+                # 多个仓库的情况
+                click.echo(f"找到 {len(repository_info)} 个 Maven 仓库:")
+                click.echo()
+                for repo_name, repo_data in repository_info.items():
+                    click.echo(f"仓库名称: {repo_data.get('name', 'Unknown')}")
+                    click.echo(f"仓库格式: {repo_data.get('format', 'Unknown')}")
+                    click.echo(f"仓库类型: {repo_data.get('type', 'Unknown')}")
+                    click.echo(f"仓库URL: {repo_data.get('url', 'Unknown')}")
+                    click.echo(f"仓库大小: {repo_data.get('size', 0)} bytes")
+                    click.echo(f"制品数量: {repo_data.get('count', 0)}")
+                    click.echo("-" * 40)
+            else:
+                # 单个仓库的情况（向后兼容）
+                click.echo(f"仓库名称: {repository_info.get('name', 'Unknown')}")
+                click.echo(f"仓库格式: {repository_info.get('format', 'Unknown')}")
+                click.echo(f"仓库类型: {repository_info.get('type', 'Unknown')}")
+                click.echo(f"仓库URL: {repository_info.get('url', 'Unknown')}")
+                click.echo(f"仓库大小: {repository_info.get('size', 0)} bytes")
+        else:
+            click.echo(f"仓库信息: {repository_info}")
+
+    except Exception as e:
+        click.echo(f"获取仓库信息失败: {e}", err=True)
+        if ctx.obj['verbose']:
+            import traceback
+            traceback.print_exc()
         sys.exit(1)
 
 
@@ -98,10 +157,11 @@ def migrate_all(ctx, cleanup):
     """迁移所有项目"""
     try:
         config_file = ctx.obj['config_file']
-        migrator = MavenMigrator(ConfigManager())
-        migrator.initialize(config_file)
-
-        click.echo("🚀 开始迁移所有项目...")
+        config_manager = ConfigManager(config_file)
+        config = config_manager.load_config_with_env()
+        migrator = MavenMigrator(config)
+        
+        click.echo("[START] 开始迁移所有项目...")
 
         # 执行迁移
         stats = migrator.migrate_all()
@@ -176,11 +236,13 @@ def migrate(ctx, projects, cleanup, dry_run, standard_mode, keep_records, filter
             yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True)
             temp_config_file = f.name
 
-        migrator = MavenMigrator(ConfigManager())
-        migrator.initialize(temp_config_file)
+        config_manager = ConfigManager(config_file)
+        config = config_manager.load_config_with_env()
+        migrator = MavenMigrator(config)
 
         import os
-        os.unlink(temp_config_file)
+        if 'temp_config_file' in locals():
+            os.unlink(temp_config_file)
 
         if dry_run:
             click.echo("试运行模式：仅查看要迁移的制品，不执行下载")
@@ -263,7 +325,7 @@ def migrate(ctx, projects, cleanup, dry_run, standard_mode, keep_records, filter
                 else:
                     click.echo("\n📝 迁移记录文件已保留")
             else:
-                click.echo("❌ 内存流水线迁移失败")
+                click.echo("[ERROR] 内存流水线迁移失败")
                 sys.exit(1)
 
         # 检查是否有错误 (仅在标准模式下检查)
@@ -283,32 +345,6 @@ def migrate(ctx, projects, cleanup, dry_run, standard_mode, keep_records, filter
 
 @cli.command()
 @click.pass_context
-def repository_info(ctx):
-    """显示 Nexus 仓库信息"""
-    try:
-        config_file = ctx.obj['config_file']
-        migrator = MavenMigrator(ConfigManager())
-        migrator.initialize(config_file)
-
-        from coding_migrator.nexus_uploader import NexusUploader
-        nexus_uploader = NexusUploader(migrator.config)
-
-        # 测试连接并获取仓库信息
-        if not nexus_uploader.test_connection():
-            click.echo("❌ 无法连接到 Nexus，请检查配置")
-            sys.exit(1)
-
-        click.echo("Nexus 仓库信息:")
-        repositories = nexus_uploader.repositories_cache
-        if repositories:
-            for repo in repositories:
-                click.echo(f"  - {repo['name']}: {repo['format']} ({repo['type']})")
-        else:
-            click.echo("  未获取到仓库信息")
-
-    except Exception as e:
-        click.echo(f"❌ 获取仓库信息失败: {e}", err=True)
-        sys.exit(1)
 
 
 @cli.command()
@@ -319,10 +355,11 @@ def migrate_pipeline(ctx, project_name, pipeline):
     """使用流水线模式迁移单个项目（边下载边上传）"""
     try:
         config_file = ctx.obj['config_file']
-        migrator = MavenMigrator(ConfigManager())
-        migrator.initialize(config_file)
-
-        click.echo(f"🚀 流水线迁移项目开始: {project_name}")
+        config_manager = ConfigManager(config_file)
+        config = config_manager.load_config_with_env()
+        migrator = MavenMigrator(config)
+        
+        click.echo(f"[START] 流水线迁移项目开始: {project_name}")
 
         # 执行流水线迁移
         stats = migrator.migrate_project_pipeline(project_name)
@@ -339,11 +376,11 @@ def migrate_pipeline(ctx, project_name, pipeline):
             click.echo(f"上传失败: {stats['upload_failed']}")
             click.echo(f"上传成功率: {stats['upload_success_rate']:.1%}")
         else:
-            click.echo("❌ 流水线迁移失败")
+            click.echo("[ERROR] 流水线迁移失败")
             sys.exit(1)
 
     except Exception as e:
-        click.echo(f"❌ 流水线迁移失败: {e}", err=True)
+        click.echo(f"[ERROR] 流水线迁移失败: {e}", err=True)
         import traceback
         click.echo(traceback.format_exc(), err=True)
         sys.exit(1)
@@ -357,9 +394,10 @@ def migrate_memory_pipeline(ctx, project_name, cleanup):
     """使用内存流水线模式迁移单个项目（零磁盘占用，边下载边上传）"""
     try:
         config_file = ctx.obj['config_file']
-        migrator = MavenMigrator(ConfigManager())
-        migrator.initialize(config_file)
-
+        config_manager = ConfigManager(config_file)
+        config = config_manager.load_config_with_env()
+        migrator = MavenMigrator(config)
+        
         click.echo(f"内存流水线迁移项目开始: {project_name}")
 
         # 执行内存流水线迁移
@@ -384,11 +422,11 @@ def migrate_memory_pipeline(ctx, project_name, cleanup):
             if cleanup:
                 click.echo("\n🧹 迁移记录文件已清理")
         else:
-            click.echo("❌ 内存流水线迁移失败")
+            click.echo("[ERROR] 内存流水线迁移失败")
             sys.exit(1)
 
     except Exception as e:
-        click.echo(f"❌ 内存流水线迁移失败: {e}", err=True)
+        click.echo(f"[ERROR] 内存流水线迁移失败: {e}", err=True)
         import traceback
         click.echo(traceback.format_exc(), err=True)
         sys.exit(1)

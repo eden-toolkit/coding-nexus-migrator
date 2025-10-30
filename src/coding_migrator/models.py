@@ -62,6 +62,12 @@ class MavenRepositoryConfig(BaseModel):
     password: str
 
 
+class ProjectRepositoryConfig(BaseModel):
+    """项目级 Maven 仓库配置模型"""
+    releases: Optional[MavenRepositoryConfig] = None
+    snapshots: Optional[MavenRepositoryConfig] = None
+
+
 class MavenFilterConfig(BaseModel):
     """Maven 过滤配置模型"""
     enabled: bool = False
@@ -97,4 +103,4 @@ class MigrationConfig(BaseModel):
     maven_filter: MavenFilterConfig = MavenFilterConfig()
     pagination: PaginationConfig = PaginationConfig()
     performance: PerformanceConfig = PerformanceConfig()
-    maven_repositories: Dict[str, MavenRepositoryConfig] = {}
+    maven_repositories: Dict[str, Union[MavenRepositoryConfig, ProjectRepositoryConfig]] = {}

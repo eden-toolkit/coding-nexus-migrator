@@ -20,47 +20,78 @@ logger = logging.getLogger(__name__)
 class MavenMigrator:
     """Maven 制品迁移器"""
 
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config: MigrationConfig):
         """
         初始化迁移器
 
         Args:
-            config_manager: 配置管理器
+            config: 迁移配置对象
         """
-        self.config_manager = config_manager
-        self.config: Optional[MigrationConfig] = None
+        self.config = config
 
-    def initialize(self, config_file: Optional[str] = None) -> None:
+    def get_projects(self) -> List[Any]:
         """
-        初始化迁移器
+        获取所有可用的项目列表
 
-        Args:
-            config_file: 配置文件路径
+        Returns:
+            项目列表
         """
-        if config_file:
-            self.config_manager.config_file = Path(config_file)
+        if not self.config:
+            raise ValueError("Migrator not properly initialized")
 
-        # 加载配置
-        self.config = self.config_manager.load_config()
+        try:
+            # 创建 CODING 客户端
+            coding_client = CodingClient(
+                self.config.coding_token,
+                self.config.coding_team_id,
+                self.config.maven_repositories,
+                self.config.pagination,
+                self.config.performance.max_workers
+            )
 
-        # 设置日志
-        self.config_manager.setup_logging(self.config_manager.load_config_dict())
+            # 获取所有项目
+            projects = coding_client.get_all_projects()
+            return projects
 
-        # 创建下载目录
-        download_path = Path(self.config.download_path)
-        download_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.error(f"Failed to get projects: {e}")
+            raise
 
-        logger.info("Maven migrator initialized successfully")
+    def get_repository_info(self) -> Dict[str, Any]:
+        """
+        获取 Nexus 仓库信息
 
-    def migrate_all(self) -> Dict[str, Any]:
+        Returns:
+            仓库信息
+        """
+        if not self.config:
+            raise ValueError("Migrator not properly initialized")
+
+        try:
+            # 创建 Nexus 上传器
+            nexus_uploader = NexusUploader(self.config)
+
+            # 获取仓库信息
+            repository_info = nexus_uploader.get_repository_info()
+            return repository_info
+
+        except Exception as e:
+            logger.error(f"Failed to get repository info: {e}")
+            raise
+
+    def migrate_all(self, cleanup: bool = False, dry_run: bool = False) -> Dict[str, Any]:
         """
         迁移所有配置的项目
+
+        Args:
+            cleanup: 迁移完成后是否清理下载文件
+            dry_run: 是否为试运行模式
 
         Returns:
             迁移结果统计
         """
         if not self.config:
-            raise ValueError("Migrator not initialized. Call initialize() first.")
+            raise ValueError("Migrator not properly initialized")
 
         logger.info("Starting full migration process")
 
@@ -174,26 +205,55 @@ class MavenMigrator:
             project_stats["error"] = error_msg
             return project_stats
 
-    def list_projects(self) -> List[str]:
+    def migrate_project_cli(self, project_name: str, cleanup: bool = False, dry_run: bool = False) -> Dict[str, Any]:
         """
-        列出所有可用的项目
+        迁移单个项目（CLI版本）
+
+        Args:
+            project_name: 项目名称
+            cleanup: 迁移完成后是否清理下载文件
+            dry_run: 是否为试运行模式
 
         Returns:
-            项目名称列表
+            项目迁移结果
         """
         if not self.config:
-            raise ValueError("Migrator not initialized. Call initialize() first.")
+            raise ValueError("Migrator not properly initialized")
 
-        coding_client = CodingClient(
-            self.config.coding_token,
-            self.config.coding_team_id,
-            self.config.maven_repositories,
-            self.config.pagination,
-            self.config.performance.max_workers
-        )
-        projects = coding_client.get_all_projects()
+        try:
+            # 初始化客户端
+            coding_client = CodingClient(
+                self.config.coding_token,
+                self.config.coding_team_id,
+                self.config.maven_repositories,
+                self.config.pagination,
+                self.config.performance.max_workers
+            )
+            downloader = MavenDownloader(coding_client, self.config)
+            nexus_uploader = NexusUploader(self.config)
 
-        return [f"{project.name} (ID: {project.id})" for project in projects]
+            # 测试 Nexus 连接
+            if not nexus_uploader.test_connection():
+                raise ConnectionError("Failed to connect to Nexus. Please check your configuration.")
+
+            if dry_run:
+                logger.info(f"试运行模式：只检查项目 {project_name}，不执行实际迁移")
+                return {
+                    "project": project_name,
+                    "dry_run": True,
+                    "status": "success"
+                }
+
+            # 执行迁移
+            return self.migrate_project(project_name, coding_client, downloader, nexus_uploader)
+
+        except Exception as e:
+            logger.error(f"Failed to migrate project {project_name}: {e}")
+            return {
+                "project": project_name,
+                "error": str(e),
+                "status": "failed"
+            }
 
     def test_connections(self) -> Dict[str, bool]:
         """
@@ -203,7 +263,7 @@ class MavenMigrator:
             连接测试结果
         """
         if not self.config:
-            raise ValueError("Migrator not initialized. Call initialize() first.")
+            raise ValueError("Migrator not properly initialized")
 
         results = {
             "coding": False,
@@ -237,7 +297,7 @@ class MavenMigrator:
         清理下载的文件
         """
         if not self.config:
-            raise ValueError("Migrator not initialized. Call initialize() first.")
+            raise ValueError("Migrator not properly initialized")
 
         download_path = Path(self.config.download_path)
 
@@ -298,7 +358,7 @@ class MavenMigrator:
             迁移结果统计
         """
         if not self.config:
-            raise ValueError("Migrator not initialized. Call initialize() first.")
+            raise ValueError("Migrator not properly initialized")
 
         logger.info(f"Starting pipeline migration for project: {project_name}")
 
@@ -332,7 +392,7 @@ class MavenMigrator:
             迁移结果统计
         """
         if not self.config:
-            raise ValueError("Migrator not initialized. Call initialize() first.")
+            raise ValueError("Migrator not properly initialized")
 
         logger.info(f"Starting memory pipeline migration for project: {project_name}")
 

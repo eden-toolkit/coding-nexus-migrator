@@ -247,7 +247,7 @@ class NexusUploader:
 
                 if response.status_code in [201, 204]:
                     # 显示更清晰的上传信息
-                    logger.info(f"✅ UPLOAD: {group_id}:{artifact_id}:{version} -> {target_repository}")
+                    logger.info(f"[OK] UPLOAD: {group_id}:{artifact_id}:{version} -> {target_repository}")
                     logger.info(f"   File: {filename}")
                     return {
                         "success": True,
@@ -519,10 +519,10 @@ class NexusUploader:
 
     def get_repository_info(self) -> Optional[Dict[str, Any]]:
         """
-        获取仓库信息
+        获取所有 Maven 仓库信息
 
         Returns:
-            仓库信息或 None
+            仓库信息字典或 None
         """
         try:
             repositories_url = f"{self.nexus_url}/service/rest/v1/repositories"
@@ -530,9 +530,22 @@ class NexusUploader:
 
             if response.status_code == 200:
                 repositories = response.json()
+
+                # 筛选出 Maven 仓库
+                maven_repos = {}
                 for repo in repositories:
-                    if repo.get('name') == self.repository:
-                        return repo
+                    if repo.get('format') == 'maven2':
+                        repo_name = repo.get('name')
+                        maven_repos[repo_name] = {
+                            'name': repo_name,
+                            'format': repo.get('format'),
+                            'type': repo.get('type'),
+                            'url': f"{self.nexus_url}/repository/{repo_name}",
+                            'size': repo.get('assets', {}).get('totalSize', 0),
+                            'count': repo.get('assets', {}).get('assetCount', 0)
+                        }
+
+                return maven_repos if maven_repos else None
 
             return None
 

@@ -39,10 +39,40 @@ cp config.sample.yaml config.yaml
 coding:
   token: "your_coding_token_here"
   team_id: 123456
+
+  # Maven 仓库认证配置（如果需要）
   maven_repositories:
-    your-repo-name:
-      username: "your_username"
-      password: "your_password"
+    your-coding-project1: # CODING 项目名称
+      your-repo-name1: # CODING 制品仓库名称
+        username: "your_username"
+        password: "your_password"
+      your-repo-name2: # CODING 制品仓库名称
+        username: "your_username"
+        password: "your_password"  
+    your-coding-project2: # CODING 项目名称
+      your-repo-name: # CODING 制品仓库名称
+        username: "your_username"
+        password: "your_password"    
+
+  # Maven 包过滤配置（可选）
+  maven_filter:
+    enabled: false
+    patterns:
+      - "com.yourcompany.*"
+
+  # 分页控制配置 - 重要：确保获取所有数据
+  pagination:
+    page_size: 100        # 每页获取的包数量
+    max_pages: 1000       # 最大页数限制
+
+  # 性能优化配置 - 内存流水线模式
+  performance:
+    max_workers: 12       # 并发工作线程数
+    memory_limit_mb: 100  # 内存使用限制（MB）
+
+  # 速率限制配置
+  rate_limit:
+    requests_per_second: 25  # 请求速率限制
 
 # Nexus 配置
 nexus:
@@ -54,8 +84,21 @@ nexus:
 
 # 迁移配置
 migration:
+  # 要迁移的项目列表，空列表表示迁移所有项目
   project_names:
     - "your_project_name"
+
+  # 标准模式专用配置（内存流水线模式不需要）
+  download_path: "./target/downloads"  # 制品下载到本地的路径
+  batch_size: 500                     # 批量上传的制品数量
+  parallel_downloads: 10             # 并发下载的线程数
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "target/migration.log"
+  max_size_mb: 10   # 日志文件最大大小（MB）
+  backup_count: 5   # 保留备份文件数量
 ```
 
 #### 4. 执行迁移
@@ -136,6 +179,7 @@ coding:
   team_id: 123456
 
   # Maven 仓库认证配置（支持多仓库）
+  # 当 CODING Maven 仓库需要认证时配置
   maven_repositories:
     repo-releases:
       username: "releases-user"
@@ -144,29 +188,33 @@ coding:
       username: "snapshots-user"
       password: "snapshots-pass"
 
-  # Maven 包过滤配置
+  # Maven 包过滤配置（可选）
+  # 用于过滤只迁移符合条件的包，支持正则表达式
   maven_filter:
     enabled: true
     patterns:
       - "com.yourcompany.*"
       - "org.yourorg.*"
 
-  # 性能优化配置
-  performance:
-    max_workers: 12      # 并发工作线程数
-    batch_size: 50       # 批处理大小
-    memory_limit_mb: 100 # 内存使用限制
-
-  # 分页限制配置
+  # 分页控制配置 - 重要：确保获取所有数据
+  # 控制 CODING API 分页参数，影响数据获取的完整性
   pagination:
-    page_size: 100       # 每页获取的包数量
-    max_pages: 50        # 最大页数限制
+    page_size: 100       # 每页获取的包数量（建议100-500）
+    max_pages: 1000      # 最大页数限制（建议设置较大值）
+
+  # 性能优化配置 - 内存流水线模式
+  # 控制内存流水线模式的性能参数
+  performance:
+    max_workers: 12      # 并发工作线程数（内存流水线模式）
+    memory_limit_mb: 100 # 内存使用限制（MB）
 
   # 速率限制配置
+  # 控制 CODING API 请求频率，避免触发限速
   rate_limit:
-    requests_per_second: 25  # 请求速率限制
+    requests_per_second: 25  # 请求速率限制（CODING限制是30 req/s）
 
 # Nexus 配置
+# 目标 Nexus 仓库的连接信息
 nexus:
   url: "http://localhost:8081"
   username: "admin"
@@ -176,12 +224,17 @@ nexus:
 
 # 迁移配置
 migration:
-  project_names:          # 要迁移的项目列表
+  # 要迁移的项目列表，空列表表示迁移所有项目
+  project_names:
     - "project1"
     - "project2"
-  download_path: "./target/downloads"  # 仅标准模式使用
-  batch_size: 500
-  parallel_downloads: 10
+
+  # 标准模式专用配置（内存流水线模式不需要）
+  # 标准模式：先下载到本地磁盘，再上传到 Nexus
+  # 内存流水线模式：直接在内存中传输，零磁盘占用
+  download_path: "./target/downloads"  # 制品下载到本地的路径
+  batch_size: 500                     # 批量上传的制品数量
+  parallel_downloads: 10             # 并发下载的线程数
 
 # 日志配置
 logging:
@@ -289,6 +342,10 @@ cnm --config config.yaml migrate --projects myproject --standard-mode
 - ✅ **即时清理** - 上传成功后立即释放内存
 - ✅ **断点续传** - 支持中断后继续迁移
 
+**配置依赖**：
+- `coding.performance.max_workers`：并发线程数
+- `coding.performance.memory_limit_mb`：内存使用限制
+
 **使用场景**：磁盘空间有限、追求最高性能
 
 ### 标准模式
@@ -297,6 +354,11 @@ cnm --config config.yaml migrate --projects myproject --standard-mode
 - 💾 先下载到本地磁盘，再上传到 Nexus
 - 🔄 支持文件检查和手动干预
 - 📁 可在下载目录查看所有文件
+
+**配置依赖**：
+- `migration.download_path`：下载路径
+- `migration.batch_size`：批处理大小
+- `migration.parallel_downloads`：并发下载数
 
 **使用场景**：需要检查文件、调试问题
 
@@ -322,15 +384,21 @@ cnm --config config.yaml migrate --projects myproject --standard-mode
 
 ### CODING API 限制处理
 
-- **智能速率限制**：自动检测 CODING 的 30 次每秒的限制
-- **并发控制**：默认 12 个并发工作线程
+- **智能速率限制**：自动检测 CODING 的 30 req/s 限制
+- **并发控制**：通过 `coding.performance.max_workers` 配置并发线程数
 - **自动重试**：遇到限流时智能等待重试
+- **分页优化**：通过 `coding.pagination` 配置确保获取所有数据
 
-### 内存管理
+### 内存管理（内存流水线模式）
 
-- **内存使用限制**：默认最大 100MB 内存使用
+- **内存使用限制**：通过 `coding.performance.memory_limit_mb` 配置内存限制
 - **流式处理**：边下载边上传，不积累文件在内存中
 - **即时清理**：上传成功后立即释放内存
+
+### 分页控制
+
+- **完整数据获取**：通过 `coding.pagination.max_pages` 确保获取所有分页数据
+- **API 效率**：通过 `coding.pagination.page_size` 平衡单次请求量和响应时间
 
 ### 低内存服务器优化
 

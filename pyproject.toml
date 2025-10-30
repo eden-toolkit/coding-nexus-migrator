@@ -7,7 +7,7 @@ name = "coding-nexus-migrator"
 version = "1.0.0"
 description = "CODING 的 Maven 制品库迁移到 Nexus 私服"
 readme = "README.md"
-license = "MIT"
+license = {text = "Apache License 2.0"}
 authors = [
     {name = "梦想歌", email = "shiyindaxiaojie@gmail.com"}
 ]
@@ -55,7 +55,7 @@ Repository = "https://github.com/shiyindaxiaojie/coding-nexus-migrator.git"
 
 [project.scripts]
 coding-nexus-migrator = "coding_migrator.cli:main"
-cmm = "coding_migrator.cli:main"
+cnm = "coding_migrator.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
