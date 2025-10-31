@@ -84,6 +84,12 @@ class PerformanceConfig(BaseModel):
     """性能优化配置模型"""
     max_workers: int = 12
     batch_size: int = 50
+    memory_limit_mb: int = 100
+
+
+class RateLimitConfig(BaseModel):
+    """速率限制配置模型"""
+    requests_per_second: int = 15
 
 
 class MigrationConfig(BaseModel):
@@ -103,4 +109,5 @@ class MigrationConfig(BaseModel):
     maven_filter: MavenFilterConfig = MavenFilterConfig()
     pagination: PaginationConfig = PaginationConfig()
     performance: PerformanceConfig = PerformanceConfig()
+    rate_limit: RateLimitConfig = RateLimitConfig()
     maven_repositories: Dict[str, Union[MavenRepositoryConfig, ProjectRepositoryConfig]] = {}

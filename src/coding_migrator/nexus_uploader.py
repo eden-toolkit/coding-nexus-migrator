@@ -241,9 +241,16 @@ class NexusUploader:
                 }
 
                 logger.debug(f"Uploading {file_path.name} to repository: {target_repository} using PUT method")
+                logger.debug(f"PUT URL: {put_url}")
+                logger.debug(f"File size: {len(file_content)} bytes")
 
                 # 发送 PUT 请求上传文件
                 response = self.session.put(put_url, data=file_content, headers=headers)
+
+                # 调试：打印更详细的响应信息
+                if response.status_code not in [201, 204]:
+                    logger.warning(f"Unexpected status code {response.status_code} for PUT request")
+                    logger.warning(f"Response content: {response.text[:500]}")  # 只显示前500个字符
 
                 if response.status_code in [201, 204]:
                     # 显示更清晰的上传信息
@@ -269,6 +276,10 @@ class NexusUploader:
                     logger.error(f"Upload URL: {put_url}")
                     logger.error(f"Repository: {target_repository}")
                     logger.error(f"Maven coordinates: {group_id}:{artifact_id}:{version}")
+                    logger.error(f"Group path: {group_path}")
+                    logger.error(f"Filename: {filename}")
+                    logger.error(f"Content-Type: {content_type}")
+                    logger.error(f"Response headers: {dict(response.headers)}")
 
                     return {
                         "success": False,

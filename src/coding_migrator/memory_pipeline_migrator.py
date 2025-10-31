@@ -52,7 +52,8 @@ class MemoryPipelineMigrator:
             config.coding_team_id,
             config.maven_repositories,
             config.pagination,
-            config.performance.max_workers
+            config.performance.max_workers,
+            requests_per_second=config.rate_limit.requests_per_second
         )
         self.nexus_uploader = NexusUploader(config)
 
@@ -205,8 +206,16 @@ class MemoryPipelineMigrator:
 
                 # 等待上传队列清空
                 logger.info("Waiting for upload queue to empty...")
-                while not self.upload_queue.empty():
+                queue_wait_count = 0
+                max_queue_wait = 600  # 最大等待60秒
+                while not self.upload_queue.empty() and queue_wait_count < max_queue_wait:
+                    queue_wait_count += 1
+                    if queue_wait_count % 50 == 0:  # 每5秒打印一次
+                        logger.info(f"Upload queue size: {self.upload_queue.qsize()}, waiting... ({queue_wait_count * 0.1:.1f}s)")
                     time.sleep(0.1)
+
+                if not self.upload_queue.empty():
+                    logger.warning(f"Upload queue not empty after timeout, {self.upload_queue.qsize()} items remaining")
 
                 # 停止上传工作线程
                 self.stop_event.set()
@@ -328,8 +337,16 @@ class MemoryPipelineMigrator:
             # 检查内存使用限制
             with self.memory_lock:
                 if self.current_memory_usage > self.max_memory_usage:
-                    logger.warning("Memory usage limit reached, waiting...")
+                    logger.warning(f"Memory usage limit reached: {self.current_memory_usage}/{self.max_memory_usage} bytes, waiting...")
+                    wait_count = 0
+                    max_wait_time = 300  # 最大等待30秒
                     while self.current_memory_usage > self.max_memory_usage * 0.5:
+                        wait_count += 1
+                        if wait_count % 50 == 0:  # 每5秒打印一次
+                            logger.info(f"Waiting for memory release: {self.current_memory_usage} bytes (waited {wait_count * 0.1:.1f}s)")
+                        if wait_count >= max_wait_time:  # 超时保护
+                            logger.error(f"Memory wait timeout after {max_wait_time * 0.1:.1f}s, forcing continue")
+                            break
                         time.sleep(0.1)
 
             # 下载文件到内存
@@ -346,7 +363,14 @@ class MemoryPipelineMigrator:
                     self.current_memory_usage += len(file_data)
 
                 # 加入上传队列
-                self.upload_queue.put(task, timeout=30)
+                try:
+                    self.upload_queue.put(task, timeout=30)
+                except Exception as queue_error:
+                    logger.error(f"Failed to add task to upload queue: {queue_error}")
+                    task.error_message = f"Queue error: {queue_error}"
+                    self.stats['upload_failed'] += 1
+                    self.failed_tasks.append(task)
+                    return False
 
                 logger.debug(f"Downloaded and queued: {artifact.file_path} ({len(file_data)} bytes)")
 
@@ -410,11 +434,19 @@ class MemoryPipelineMigrator:
         """上传工作线程"""
         logger.info("Memory upload worker started")
 
-        # 记录保存计数器
+        # 记录保存计数器和状态报告
         save_counter = 0
+        status_counter = 0
 
         while not self.stop_event.is_set():
             try:
+                # 定期报告状态（每30秒）
+                status_counter += 1
+                if status_counter % 300 == 0:  # 300 * 0.1s = 30s
+                    logger.info(f"Upload worker status - Memory usage: {self.current_memory_usage}/{self.max_memory_usage} bytes, "
+                               f"Queue size: {self.upload_queue.qsize()}, Uploaded: {self.stats['uploaded']}, "
+                               f"Failed: {self.stats['upload_failed']}")
+
                 # 从队列获取任务
                 task = self.upload_queue.get(timeout=1.0)
 
@@ -489,22 +521,29 @@ class MemoryPipelineMigrator:
                     logger.error(f"Failed to upload {task.artifact.file_path}: {e}")
 
                 finally:
-                    # 释放内存
+                    # 释放内存（重要：确保总是释放内存）
                     if task.file_data:
+                        file_size = len(task.file_data)
                         with self.memory_lock:
-                            self.current_memory_usage -= len(task.file_data)
+                            self.current_memory_usage -= file_size
+                        logger.debug(f"Released {file_size} bytes from memory, current usage: {self.current_memory_usage}")
                         task.file_data = None
 
                     # 标记任务完成
-                    self.upload_queue.task_done()
+                    try:
+                        self.upload_queue.task_done()
+                    except Exception as task_done_error:
+                        logger.error(f"Failed to mark task as done: {task_done_error}")
 
             except Empty:
                 # 队列为空，继续等待
                 continue
             except Exception as e:
                 logger.error(f"Upload worker error: {e}")
+                # 确保在异常情况下也等待一小段时间，避免CPU占用过高
+                time.sleep(0.1)
 
-        logger.info("Memory upload worker stopped")
+        logger.info("Memory upload worker stopped - Final memory usage: {self.current_memory_usage} bytes")
 
     def _convert_to_maven_path(self, artifact: MavenArtifact) -> str:
         """转换为 Maven 路径格式"""

@@ -46,7 +46,8 @@ class MavenMigrator:
                 self.config.coding_team_id,
                 self.config.maven_repositories,
                 self.config.pagination,
-                self.config.performance.max_workers
+                self.config.performance.max_workers,
+                requests_per_second=self.config.rate_limit.requests_per_second
             )
 
             # 获取所有项目
@@ -101,7 +102,8 @@ class MavenMigrator:
             self.config.coding_team_id,
             self.config.maven_repositories,
             self.config.pagination,
-            self.config.performance.max_workers
+            self.config.performance.max_workers,
+            requests_per_second=self.config.rate_limit.requests_per_second
         )
         downloader = MavenDownloader(coding_client, self.config)
         nexus_uploader = NexusUploader(self.config)
@@ -227,7 +229,8 @@ class MavenMigrator:
                 self.config.coding_team_id,
                 self.config.maven_repositories,
                 self.config.pagination,
-                self.config.performance.max_workers
+                self.config.performance.max_workers,
+                requests_per_second=self.config.rate_limit.requests_per_second
             )
             downloader = MavenDownloader(coding_client, self.config)
             nexus_uploader = NexusUploader(self.config)
@@ -275,7 +278,8 @@ class MavenMigrator:
             coding_client = CodingClient(
                 self.config.coding_token,
                 self.config.coding_team_id,
-                self.config.maven_repositories
+                self.config.maven_repositories,
+                requests_per_second=self.config.rate_limit.requests_per_second
             )
             projects = coding_client.get_projects(1, 1)  # 只获取一个项目测试连接
             results["coding"] = True
@@ -425,7 +429,8 @@ class MavenMigrator:
                     self.config.coding_team_id,
                     self.config.maven_repositories,
                     self.config.pagination,
-                    self.config.performance.max_workers
+                    self.config.performance.max_workers,
+                    requests_per_second=self.config.rate_limit.requests_per_second
                 )
 
             if not hasattr(self, 'nexus_uploader'):
@@ -459,7 +464,8 @@ class MavenMigrator:
                     self.config.coding_team_id,
                     self.config.maven_repositories,
                     self.config.pagination,
-                    self.config.performance.max_workers
+                    self.config.performance.max_workers,
+                    requests_per_second=self.config.rate_limit.requests_per_second
                 )
 
             projects = self.coding_client.get_all_projects()

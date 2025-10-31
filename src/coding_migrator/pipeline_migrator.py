@@ -48,7 +48,8 @@ class PipelineMigrator:
             config.coding_team_id,
             config.maven_repositories,
             config.pagination,
-            config.performance.max_workers
+            config.performance.max_workers,
+            requests_per_second=config.rate_limit.requests_per_second
         )
         self.nexus_uploader = NexusUploader(config)
 

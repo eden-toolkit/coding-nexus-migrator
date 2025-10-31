@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class CodingClient:
     """CODING API 客户端"""
 
-    def __init__(self, token: str, team_id: int, maven_repositories: Optional[Dict[str, Any]] = None, pagination_config: Optional[PaginationConfig] = None, max_workers: int = 8):
+    def __init__(self, token: str, team_id: int, maven_repositories: Optional[Dict[str, Any]] = None, pagination_config: Optional[PaginationConfig] = None, max_workers: int = 8, requests_per_second: int = 20):
         """
         初始化 CODING 客户端
 
@@ -30,6 +30,7 @@ class CodingClient:
             maven_repositories: Maven 仓库认证配置
             pagination_config: 分页配置
             max_workers: 最大并发线程数
+            requests_per_second: 每秒请求数限制
         """
         self.token = token
         self.team_id = team_id
@@ -38,9 +39,17 @@ class CodingClient:
         self.max_workers = max_workers
         self.base_url = "https://e.coding.net/open-api/"
 
-        # 速率限制控制 (30 req/s 限制，我们使用 25 req/s 留出安全边际)
-        self.rate_limiter = threading.Semaphore(25)
+        # 速率限制配置 (默认20 req/s，比CODING限制的30 req/s更保守)
+        self.requests_per_second = requests_per_second
+        self.rate_limiter = threading.Semaphore(requests_per_second)
         self.last_request_time = 0
+
+        # 速率限制统计
+        self.request_count = 0
+        self.rate_limit_hits = 0
+        self.last_stats_time = time.time()
+
+        logger.info(f"CodingClient initialized with rate limit: {requests_per_second} req/s")
 
         # 创建会话，配置连接池
         self.session = requests.Session()
@@ -64,18 +73,27 @@ class CodingClient:
         # 获取信号量
         self.rate_limiter.acquire()
 
-        # 计算距离上次请求的时间
+        # 更新请求统计
+        self.request_count += 1
         current_time = time.time()
+
+        # 每100个请求或每分钟报告一次统计
+        if self.request_count % 100 == 0 or current_time - self.last_stats_time > 60:
+            logger.info(f"API Stats: {self.request_count} requests, {self.rate_limit_hits} rate limit hits, "
+                       f"current rate: {self.requests_per_second} req/s")
+            self.last_stats_time = current_time
+
+        # 计算距离上次请求的时间
         time_since_last = current_time - self.last_request_time
 
-        # 确保每秒不超过 25 个请求（40ms 间隔）
-        min_interval = 0.04  # 1/25 秒
+        # 根据配置的速率限制计算最小间隔
+        min_interval = 1.0 / self.requests_per_second
 
         if time_since_last < min_interval:
             sleep_time = min_interval - time_since_last
             time.sleep(sleep_time)
 
-        self.last_request_time = time.time()
+        self.last_request_time = current_time
 
         # 在一个单独的线程中延迟释放信号量
         def release_semaphore():
@@ -113,21 +131,60 @@ class CodingClient:
             if 'Response' in result and 'Error' in result['Response']:
                 error = result['Response']['Error']
                 if error.get('Code') == 'RequestLimitExceeded':
-                    # 如果遇到请求限制，等待后重试
-                    wait_time = random.uniform(1.0, 2.0)
-                    logger.warning(f"Rate limit hit, waiting {wait_time:.1f}s before retry...")
-                    time.sleep(wait_time)
+                    # 如果遇到请求限制，进行智能重试
+                    self.rate_limit_hits += 1
+                    max_retries = 3
+                    for retry in range(max_retries):
+                        # 指数退避 + 随机抖动
+                        base_wait = 2 ** retry  # 1, 2, 4 秒
+                        jitter = random.uniform(0.5, 1.5)  # 随机抖动
+                        wait_time = base_wait * jitter
 
-                    # 重试一次
-                    response = self.session.post(url, params=params, json=data, timeout=30)
-                    response.raise_for_status()
-                    result = response.json()
+                        logger.warning(f"Rate limit hit (attempt {retry + 1}/{max_retries}), waiting {wait_time:.1f}s before retry...")
+                        time.sleep(wait_time)
 
-                    # 如果重试后仍然有限制错误，抛出异常
-                    if 'Response' in result and 'Error' in result['Response']:
-                        retry_error = result['Response']['Error']
-                        if retry_error.get('Code') == 'RequestLimitExceeded':
-                            raise requests.RequestException(f"API Error: {retry_error.get('Code')} - {retry_error.get('Message', 'Unknown error')}")
+                        # 降低速率限制
+                        original_rate = self.requests_per_second
+                        self.requests_per_second = max(5, original_rate // 2)  # 最低5 req/s
+                        self.rate_limiter = threading.Semaphore(self.requests_per_second)
+                        logger.info(f"Temporarily reduced rate limit to {self.requests_per_second} req/s")
+
+                        # 重试请求
+                        try:
+                            response = self.session.post(url, params=params, json=data, timeout=30)
+                            response.raise_for_status()
+                            result = response.json()
+
+                            # 检查重试后是否还有错误
+                            if 'Response' in result and 'Error' in result['Response']:
+                                retry_error = result['Response']['Error']
+                                if retry_error.get('Code') == 'RequestLimitExceeded':
+                                    if retry < max_retries - 1:
+                                        continue  # 继续重试
+                                    else:
+                                        raise requests.RequestException(f"API Error: {retry_error.get('Code')} - {retry_error.get('Message', 'Unknown error')} (max retries exceeded)")
+
+                            # 重试成功，恢复原始速率限制
+                            self.requests_per_second = original_rate
+                            self.rate_limiter = threading.Semaphore(self.requests_per_second)
+                            logger.info(f"Restored rate limit to {self.requests_per_second} req/s after successful retry")
+                            break
+
+                        except requests.RequestException as retry_exception:
+                            if retry < max_retries - 1:
+                                logger.warning(f"Retry {retry + 1} failed: {retry_exception}")
+                                continue
+                            else:
+                                raise requests.RequestException(f"API Error: {retry_exception} (max retries exceeded)")
+                        finally:
+                            # 无论重试是否成功，都确保在一段时间后恢复速率限制
+                            def restore_rate():
+                                time.sleep(30)  # 30秒后恢复
+                                self.requests_per_second = original_rate
+                                self.rate_limiter = threading.Semaphore(self.requests_per_second)
+                                logger.info(f"Rate limit restored to {self.requests_per_second} req/s")
+
+                            threading.Thread(target=restore_rate, daemon=True).start()
                 else:
                     raise requests.RequestException(f"API Error: {error.get('Code', 'Unknown')} - {error.get('Message', 'Unknown error')}")
 
@@ -383,10 +440,11 @@ class CodingClient:
         all_artifacts = []
 
         # 分批处理，避免同时发送过多请求
-        batch_size = 50  # 每批处理 50 个版本
+        # 根据当前速率限制动态调整批量大小
+        batch_size = min(20, max(5, self.requests_per_second // 2))  # 5-20之间，取决于速率限制
         total_batches = (len(versions) + batch_size - 1) // batch_size
 
-        logger.info(f"Processing {len(versions)} versions in {total_batches} batches of {batch_size}")
+        logger.info(f"Processing {len(versions)} versions in {total_batches} batches of {batch_size} (rate limit: {self.requests_per_second} req/s)")
 
         for batch_num in range(total_batches):
             start_idx = batch_num * batch_size
@@ -431,7 +489,11 @@ class CodingClient:
         """
         artifacts = []
 
-        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(tasks))) as executor:
+        # 根据速率限制动态调整并发数，避免过多并发请求
+        max_concurrent = min(self.max_workers, len(tasks), max(2, self.requests_per_second // 3))
+        logger.debug(f"Using {max_concurrent} concurrent workers for {len(tasks)} tasks (rate limit: {self.requests_per_second} req/s)")
+
+        with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
             # 提交所有任务
             future_to_task = {}
             for task in tasks:

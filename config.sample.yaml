@@ -38,7 +38,7 @@ coding:
   # 速率限制配置
   # 控制 CODING API 请求频率，避免触发限速
   rate_limit:
-    requests_per_second: 25  # 请求速率限制（CODING限制是30 req/s）
+    requests_per_second: 15  # 请求速率限制（CODING限制是30 req/s）
 
 # Nexus 配置
 # 目标 Nexus 仓库的连接信息
