@@ -10,6 +10,8 @@
 - **📦 自动版本识别** - 智能识别 SNAPSHOT 和 RELEASE 版本，自动分配到对应仓库
 - **🔧 灵活配置方式** - 支持配置文件、环境变量、混合模式
 - **📊 详细进度监控** - 实时显示迁移进度和统计信息
+- **🔍 进程管理功能** - 查看和停止正在运行的迁移进程
+- **📋 失败日志追踪** - 详细记录下载和上传失败的依赖路径
 
 ## 📋 系统要求
 
@@ -293,6 +295,12 @@ cnm --config config.yaml verify-config                       # 验证配置
 cnm --config config.yaml list-projects                       # 列出 CODING 项目
 cnm --config config.yaml repository-info                     # 查看 Nexus 仓库信息
 
+# 进程管理
+cnm status                                                  # 查看迁移进程状态
+cnm stop                                                    # 停止迁移进程（会询问确认）
+cnm stop --all                                              # 停止所有迁移进程
+cnm stop --force                                            # 强制停止迁移进程
+
 # 迁移命令
 cnm --config config.yaml migrate --projects PROJECT_NAME     # 内存流水线迁移（默认）
 cnm --config config.yaml migrate --projects PROJECT_NAME \
@@ -310,6 +318,13 @@ cnm --config config.yaml migrate                             # 迁移所有配�
 | `--cleanup` | 迁移完成后清理下载文件（仅标准模式） |
 | `--keep-records` | 保留迁移记录文件 |
 | `--filter, -f` | 包过滤规则，覆盖配置文件设置 |
+
+#### 进程管理选项
+
+| 选项 | 说明 |
+|------|------|
+| `--force, -f` | 强制终止进程，不询问确认 |
+| `--all, -a` | 终止所有找到的迁移进程 |
 
 ### 使用示例
 
@@ -329,6 +344,15 @@ cnm --config config.yaml migrate --projects myproject --dry-run
 
 # 标准模式迁移（适合调试）
 cnm --config config.yaml migrate --projects myproject --standard-mode
+
+# 后台运行迁移
+nohup cnm --config config.yaml migrate --projects myproject > migration.log 2>&1 &
+
+# 进程管理
+cnm status                                                    # 查看正在运行的迁移进程
+cnm stop                                                      # 停止迁移进程
+cnm stop --all                                                # 停止所有迁移进程
+cnm stop --force                                              # 强制停止进程
 ```
 
 ## 🔄 迁移模式说明

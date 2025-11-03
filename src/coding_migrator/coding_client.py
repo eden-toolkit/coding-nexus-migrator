@@ -930,7 +930,7 @@ class CodingClient:
                         if hasattr(project_repos, url_repo_name):
                             repo_config = getattr(project_repos, url_repo_name)
                             auth = (repo_config.username, repo_config.password)
-                            logger.info(f"Using auth for URL project: {url_project_name}, repo: {url_repo_name}")
+                            logger.debug(f"Using auth for URL project: {url_project_name}, repo: {url_repo_name}")
                         else:
                             logger.warning(f"No auth found for repository: {url_repo_name} in URL project: {url_project_name}")
                     else:
@@ -941,7 +941,7 @@ class CodingClient:
                             if hasattr(project_repos, repository_name):
                                 repo_config = getattr(project_repos, repository_name)
                                 auth = (repo_config.username, repo_config.password)
-                                logger.info(f"Using fallback auth for project: {project_name}, repo: {repository_name}")
+                                logger.debug(f"Using fallback auth for project: {project_name}, repo: {repository_name}")
                             else:
                                 logger.warning(f"No auth found for repository: {repository_name} in fallback project: {project_name}")
                         else:
@@ -954,8 +954,8 @@ class CodingClient:
                         if hasattr(project_repos, repository_name):
                             repo_config = getattr(project_repos, repository_name)
                             auth = (repo_config.username, repo_config.password)
-                            logger.info(f"Using basic auth for project: {project_name}, repo: {repository_name}")
-                            logger.info(f"Auth username: {repo_config.username}")
+                            logger.debug(f"Using basic auth for project: {project_name}, repo: {repository_name}")
+                            logger.debug(f"Auth username: {repo_config.username}")
                         else:
                             logger.warning(f"No auth found for repository: {repository_name} in project: {project_name}")
                     else:
@@ -963,7 +963,7 @@ class CodingClient:
             else:
                 logger.debug(f"Not a Maven repository URL, skipping auth: {target_url}")
 
-            logger.info(f"Final auth: {'None' if auth is None else f'username={auth[0]}'}")
+            logger.debug(f"Final auth: {'None' if auth is None else f'username={auth[0]}'}")
             response = self.session.get(target_url, stream=True, auth=auth)
             response.raise_for_status()
 

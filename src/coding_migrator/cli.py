@@ -8,8 +8,10 @@ import os
 import sys
 import click
 import logging
+import psutil
+import signal
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from .config import ConfigManager
 from .migrator import MavenMigrator
@@ -379,6 +381,145 @@ def repository_info(ctx):
 
 
 @cli.command()
+@click.option('--force', '-f', is_flag=True, help='强制终止进程，不询问确认')
+@click.option('--all', '-a', is_flag=True, help='终止所有找到的迁移进程')
+@click.pass_context
+def stop(ctx, force, all):
+    """停止正在运行的迁移进程"""
+    try:
+        click.echo("🔍 正在查找正在运行的迁移进程...")
+
+        # 查找迁移进程
+        migration_processes = _find_migration_processes()
+
+        if not migration_processes:
+            click.echo("[INFO] 未找到正在运行的迁移进程")
+            return
+
+        click.echo(f"[FOUND] 找到 {len(migration_processes)} 个正在运行的迁移进程:")
+        click.echo("=" * 80)
+
+        for i, proc in enumerate(migration_processes, 1):
+            click.echo(f"{i}. PID: {proc['pid']}")
+            click.echo(f"   命令: {proc['cmdline']}")
+            click.echo(f"   启动时间: {proc['create_time']}")
+            click.echo(f"   运行时间: {proc['running_time']}")
+            click.echo(f"   内存使用: {proc['memory_info']}")
+            click.echo("-" * 40)
+
+        # 确定要终止的进程
+        processes_to_kill = migration_processes if all else [migration_processes[0]]
+
+        if not force:
+            if all:
+                click.echo(f"\n⚠️  确认要终止所有 {len(processes_to_kill)} 个迁移进程吗? [y/N]")
+            else:
+                click.echo(f"\n⚠️  确认要终止进程 PID {processes_to_kill[0]['pid']} 吗? [y/N]")
+
+            response = input().strip().lower()
+            if response not in ['y', 'yes']:
+                click.echo("[CANCEL] 操作已取消")
+                return
+
+        # 终止进程
+        success_count = 0
+        failed_count = 0
+
+        for proc in processes_to_kill:
+            try:
+                # 尝试优雅地终止进程
+                process = psutil.Process(proc['pid'])
+                click.echo(f"[STOPPING] 正在终止进程 PID {proc['pid']}...")
+
+                # 发送 SIGTERM 信号
+                process.terminate()
+
+                # 等待进程结束
+                try:
+                    process.wait(timeout=10)
+                    click.echo(f"[OK] 进程 PID {proc['pid']} 已优雅终止")
+                    success_count += 1
+                except psutil.TimeoutExpired:
+                    # 如果优雅终止失败，强制终止
+                    if force:
+                        click.echo(f"[FORCE] 强制终止进程 PID {proc['pid']}...")
+                        process.kill()
+                        process.wait(timeout=5)
+                        click.echo(f"[OK] 进程 PID {proc['pid']} 已强制终止")
+                        success_count += 1
+                    else:
+                        click.echo(f"[FAILED] 进程 PID {proc['pid']} 终止超时，使用 --force 强制终止")
+                        failed_count += 1
+
+            except psutil.NoSuchProcess:
+                click.echo(f"[INFO] 进程 PID {proc['pid']} 已不存在")
+                success_count += 1
+            except Exception as e:
+                click.echo(f"[ERROR] 终止进程 PID {proc['pid']} 失败: {e}")
+                failed_count += 1
+
+        click.echo(f"\n📊 操作完成: {success_count} 个进程已终止, {failed_count} 个失败")
+
+        if failed_count > 0:
+            click.echo("💡 提示: 如果进程无法终止，可以尝试使用 --force 参数")
+
+    except Exception as e:
+        click.echo(f"[ERROR] 停止进程失败: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.pass_context
+def status(ctx):
+    """显示迁移进程状态"""
+    try:
+        click.echo("🔍 正在查找迁移进程...")
+
+        # 查找迁移进程
+        migration_processes = _find_migration_processes()
+
+        if not migration_processes:
+            click.echo("[INFO] 未找到正在运行的迁移进程")
+            return
+
+        click.echo(f"[FOUND] 找到 {len(migration_processes)} 个正在运行的迁移进程:")
+        click.echo("=" * 100)
+
+        total_memory = 0
+        for i, proc in enumerate(migration_processes, 1):
+            click.echo(f"📋 进程 #{i}")
+            click.echo(f"   PID: {proc['pid']}")
+            click.echo(f"   命令: {proc['cmdline']}")
+            click.echo(f"   启动时间: {proc['create_time']}")
+            click.echo(f"   运行时间: {proc['running_time']}")
+            click.echo(f"   CPU使用率: {proc['cpu_percent']:.1f}%")
+            click.echo(f"   内存使用: {proc['memory_info']}")
+            click.echo(f"   状态: {proc['status']}")
+            click.echo(f"   工作目录: {proc['cwd']}")
+
+            # 累计内存使用
+            memory_mb = proc['memory_mb']
+            total_memory += memory_mb
+
+            click.echo("-" * 50)
+
+        click.echo(f"📊 总计:")
+        click.echo(f"   进程数量: {len(migration_processes)}")
+        click.echo(f"   总内存使用: {total_memory:.1f} MB")
+        click.echo(f"   平均内存: {total_memory/len(migration_processes):.1f} MB")
+
+        # 提供操作建议
+        click.echo(f"\n💡 可用操作:")
+        click.echo(f"   cnm stop              # 停止第一个进程")
+        click.echo(f"   cnm stop --all        # 停止所有进程")
+        click.echo(f"   cnm stop --force      # 强制停止进程")
+
+    except Exception as e:
+        click.echo(f"[ERROR] 获取进程状态失败: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
 @click.pass_context
 def verify_config(ctx):
     """验证配置文件和环境变量"""
@@ -421,6 +562,87 @@ def verify_config(ctx):
     except Exception as e:
         click.echo(f"[ERROR] 配置验证失败: {e}", err=True)
         sys.exit(1)
+
+
+def _find_migration_processes() -> List[dict]:
+    """查找正在运行的迁移进程"""
+    migration_processes = []
+
+    try:
+        # 获取所有进程
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time', 'cwd', 'status']):
+            try:
+                # 获取进程信息
+                cmdline = proc.info.get('cmdline', [])
+                if not cmdline:
+                    continue
+
+                # 检查是否是迁移进程
+                cmdline_str = ' '.join(cmdline)
+                is_migration_process = (
+                    'coding_migrator' in cmdline_str or
+                    'memory_pipeline_migrator' in cmdline_str or
+                    ('python' in cmdline_str and 'migrate' in cmdline_str) or
+                    ('cnm' in cmdline_str and ('migrate' in cmdline_str or 'memory' in cmdline_str))
+                )
+
+                if is_migration_process:
+                    # 获取详细的进程信息
+                    try:
+                        memory_info = proc.memory_info()
+                        memory_mb = memory_info.rss / 1024 / 1024  # 转换为MB
+                        cpu_percent = proc.cpu_percent()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        memory_info = "N/A"
+                        memory_mb = 0
+                        cpu_percent = 0
+
+                    # 格式化启动时间和运行时间
+                    import datetime
+                    create_time = datetime.datetime.fromtimestamp(proc.info['create_time'])
+                    running_time = datetime.datetime.now() - create_time
+
+                    # 格式化运行时间
+                    days = running_time.days
+                    hours, remainder = divmod(running_time.seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    running_time_str = ""
+                    if days > 0:
+                        running_time_str += f"{days}天 "
+                    if hours > 0:
+                        running_time_str += f"{hours}小时 "
+                    if minutes > 0:
+                        running_time_str += f"{minutes}分钟 "
+                    running_time_str += f"{seconds}秒"
+
+                    # 格式化内存信息
+                    if isinstance(memory_info, tuple) and len(memory_info) >= 1:
+                        memory_str = f"{memory_mb:.1f} MB"
+                    else:
+                        memory_str = "N/A"
+
+                    migration_processes.append({
+                        'pid': proc.info['pid'],
+                        'cmdline': ' '.join(cmdline),
+                        'create_time': create_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        'running_time': running_time_str,
+                        'memory_info': memory_str,
+                        'memory_mb': memory_mb,
+                        'cpu_percent': cpu_percent,
+                        'status': proc.info['status'],
+                        'cwd': proc.info.get('cwd', 'N/A')
+                    })
+
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+    except Exception as e:
+        click.echo(f"[WARNING] 查找进程时出现错误: {e}")
+
+    # 按启动时间排序（最早的在前）
+    migration_processes.sort(key=lambda x: x['create_time'])
+
+    return migration_processes
 
 
 def _display_result(result):
