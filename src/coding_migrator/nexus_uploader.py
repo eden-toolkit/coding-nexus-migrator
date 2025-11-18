@@ -198,6 +198,7 @@ class NexusUploader:
     def upload_file(self, file_path: Path, maven_path: str) -> Dict[str, Any]:
         """
         上传单个文件到 Nexus (使用 PUT 方法)
+        同时生成并上传对应的 SHA1 和 MD5 校验和文件
 
         Args:
             file_path: 本地文件路径
@@ -232,62 +233,69 @@ class NexusUploader:
                 group_path = group_id.replace('.', '/')
                 put_url = f"{self.nexus_url}/repository/{target_repository}/{group_path}/{artifact_id}/{version}/{filename}"
 
-                # 根据文件扩展名确定正确的 Content-Type
-                content_type = self._get_content_type(file_path.suffix)
+                # 上传主文件
+                main_result = self._upload_single_file(put_url, file_content, filename, target_repository,
+                                                      group_id, artifact_id, version, file_path.suffix)
 
-                headers = {
-                    'Content-Type': content_type,
-                    'Content-Length': str(len(file_content))
-                }
+                if not main_result["success"]:
+                    return main_result
 
-                logger.debug(f"Uploading {file_path.name} to repository: {target_repository} using PUT method")
-                logger.debug(f"PUT URL: {put_url}")
-                logger.debug(f"File size: {len(file_content)} bytes")
+                # 生成并上传校验和文件
+                checksum_results = []
+                try:
+                    # 计算 SHA1 和 MD5
+                    sha1_hash = hashlib.sha1(file_content).hexdigest()
+                    md5_hash = hashlib.md5(file_content).hexdigest()
 
-                # 发送 PUT 请求上传文件
-                response = self.session.put(put_url, data=file_content, headers=headers)
+                    # 上传 SHA1 文件
+                    sha1_url = f"{put_url}.sha1"
+                    sha1_result = self._upload_single_file(sha1_url, sha1_hash.encode('utf-8'),
+                                                           f"{filename}.sha1", target_repository,
+                                                           group_id, artifact_id, version, '.sha1')
+                    checksum_results.append(sha1_result)
 
-                # 调试：打印更详细的响应信息
-                if response.status_code not in [201, 204]:
-                    logger.warning(f"Unexpected status code {response.status_code} for PUT request")
-                    logger.warning(f"Response content: {response.text[:500]}")  # 只显示前500个字符
+                    # 上传 MD5 文件
+                    md5_url = f"{put_url}.md5"
+                    md5_result = self._upload_single_file(md5_url, md5_hash.encode('utf-8'),
+                                                         f"{filename}.md5", target_repository,
+                                                         group_id, artifact_id, version, '.md5')
+                    checksum_results.append(md5_result)
 
-                if response.status_code in [201, 204]:
+                    # 检查校验和文件是否都上传成功
+                    checksum_success = all(result["success"] for result in checksum_results)
+                    if not checksum_success:
+                        logger.warning(f"Some checksum files failed to upload for {filename}")
+                        for result in checksum_results:
+                            if not result["success"]:
+                                logger.warning(f"Failed to upload {result.get('maven_path', 'unknown')}: {result.get('error', 'unknown')}")
+
                     # 显示更清晰的上传信息
                     logger.info(f"[OK] UPLOAD: {group_id}:{artifact_id}:{version} -> {target_repository}")
                     logger.info(f"   File: {filename}")
+                    logger.info(f"   SHA1: {sha1_hash}")
+                    logger.info(f"   MD5: {md5_hash}")
+
                     return {
                         "success": True,
                         "file_path": str(file_path),
                         "maven_path": repository_path,
                         "repository": target_repository,
-                        "status_code": response.status_code
+                        "status_code": main_result["status_code"],
+                        "sha1": sha1_hash,
+                        "md5": md5_hash,
+                        "checksum_uploaded": checksum_success
                     }
-                else:
-                    error_text = response.text
-                    try:
-                        # 尝试解析JSON错误信息
-                        error_json = response.json()
-                        error_detail = error_json.get('error_details', error_text)
-                    except:
-                        error_detail = error_text
 
-                    logger.error(f"Failed to upload {file_path}: {response.status_code} - {error_detail}")
-                    logger.error(f"Upload URL: {put_url}")
-                    logger.error(f"Repository: {target_repository}")
-                    logger.error(f"Maven coordinates: {group_id}:{artifact_id}:{version}")
-                    logger.error(f"Group path: {group_path}")
-                    logger.error(f"Filename: {filename}")
-                    logger.error(f"Content-Type: {content_type}")
-                    logger.error(f"Response headers: {dict(response.headers)}")
-
+                except Exception as e:
+                    logger.error(f"Failed to upload checksum files for {filename}: {e}")
+                    # 即使校验和文件上传失败，主文件已经上传成功，仍然返回成功
                     return {
-                        "success": False,
+                        "success": True,
                         "file_path": str(file_path),
                         "maven_path": repository_path,
                         "repository": target_repository,
-                        "status_code": response.status_code,
-                        "error": error_detail
+                        "status_code": main_result["status_code"],
+                        "checksum_error": str(e)
                     }
             else:
                 raise ValueError(f"Invalid Maven path format: {repository_path}")
@@ -299,6 +307,75 @@ class NexusUploader:
                 "file_path": str(file_path),
                 "maven_path": repository_path,
                 "error": str(e)
+            }
+
+    def _upload_single_file(self, put_url: str, file_content: bytes, filename: str,
+                           target_repository: str, group_id: str, artifact_id: str,
+                           version: str, file_suffix: str) -> Dict[str, Any]:
+        """
+        上传单个文件到 Nexus
+
+        Args:
+            put_url: 上传URL
+            file_content: 文件内容
+            filename: 文件名
+            target_repository: 目标仓库
+            group_id: Maven groupId
+            artifact_id: Maven artifactId
+            version: Maven version
+            file_suffix: 文件后缀
+
+        Returns:
+            上传结果
+        """
+        # 根据文件扩展名确定正确的 Content-Type
+        content_type = self._get_content_type(file_suffix)
+
+        headers = {
+            'Content-Type': content_type,
+            'Content-Length': str(len(file_content))
+        }
+
+        logger.debug(f"Uploading {filename} to repository: {target_repository} using PUT method")
+        logger.debug(f"PUT URL: {put_url}")
+        logger.debug(f"File size: {len(file_content)} bytes")
+
+        # 发送 PUT 请求上传文件
+        response = self.session.put(put_url, data=file_content, headers=headers)
+
+        # 调试：打印更详细的响应信息
+        if response.status_code not in [201, 204]:
+            logger.warning(f"Unexpected status code {response.status_code} for PUT request")
+            logger.warning(f"Response content: {response.text[:500]}")  # 只显示前500个字符
+
+        if response.status_code in [201, 204]:
+            return {
+                "success": True,
+                "maven_path": put_url.split(f"/repository/{target_repository}/")[-1],
+                "repository": target_repository,
+                "status_code": response.status_code
+            }
+        else:
+            error_text = response.text
+            try:
+                # 尝试解析JSON错误信息
+                error_json = response.json()
+                error_detail = error_json.get('error_details', error_text)
+            except:
+                error_detail = error_text
+
+            logger.error(f"Failed to upload {filename}: {response.status_code} - {error_detail}")
+            logger.error(f"Upload URL: {put_url}")
+            logger.error(f"Repository: {target_repository}")
+            logger.error(f"Maven coordinates: {group_id}:{artifact_id}:{version}")
+            logger.error(f"Content-Type: {content_type}")
+
+            return {
+                "success": False,
+                "maven_path": put_url.split(f"/repository/{target_repository}/")[-1],
+                "repository": target_repository,
+                "status_code": response.status_code,
+                "error": error_detail
             }
 
     def upload_directory(self, directory_path: Path, batch_size: Optional[int] = None) -> Dict[str, Any]:

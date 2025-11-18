@@ -391,12 +391,12 @@ class MemoryPipelineMigrator:
                     self.pom_stats['discovered_in_coding'] += len(pom_artifacts)
 
                 if pom_artifacts:
-                    logger.info(f"[POM DEBUG] Found {len(pom_artifacts)} POM files in repository {repo_name}")
+                    logger.info(f"Found {len(pom_artifacts)} POM files in repository {repo_name}")
                     # 记录前几个POM文件用于调试
                     for i, pom in enumerate(pom_artifacts[:3]):
-                        logger.info(f"[POM DEBUG]   POM {i+1}: {pom.group_id}:{pom.artifact_id}:{pom.version} ({pom.file_path})")
+                        logger.info(f"  POM {i+1}: {pom.group_id}:{pom.artifact_id}:{pom.version} ({pom.file_path})")
                     if len(pom_artifacts) > 3:
-                        logger.info(f"[POM DEBUG]   ... and {len(pom_artifacts) - 3} more POM files")
+                        logger.info(f"  ... and {len(pom_artifacts) - 3} more POM files")
 
             except Exception as e:
                 logger.error(f"Failed to get artifacts from repository {repo_name}: {e}")
@@ -424,7 +424,7 @@ class MemoryPipelineMigrator:
             if artifact.file_path.endswith('.pom') or artifact.packaging == 'pom':
                 with self.pom_lock:
                     self.pom_stats['skipped_already_uploaded'] += 1
-                logger.info(f"[POM DEBUG] ⏭️  SKIP POM: {artifact.group_id}:{artifact.artifact_id}:{artifact.version} already uploaded")
+                logger.info(f"⏭️  SKIP POM: {artifact.group_id}:{artifact.artifact_id}:{artifact.version} already uploaded")
             else:
                 logger.info(f"⏭️  SKIP: {artifact.group_id}:{artifact.artifact_id}:{artifact.version} already uploaded")
             self.stats['skipped_existing'] += 1
@@ -441,11 +441,11 @@ class MemoryPipelineMigrator:
             if is_pom_file:
                 with self.pom_lock:
                     self.pom_stats['download_attempted'] += 1
-                logger.info(f"[POM DEBUG] 🔄 STARTING POM DOWNLOAD: {artifact.group_id}:{artifact.artifact_id}:{artifact.version}")
-                logger.info(f"[POM DEBUG]   File path: {artifact.file_path}")
-                logger.info(f"[POM DEBUG]   Repository: {artifact.repository}")
+                logger.info(f"🔄 STARTING POM DOWNLOAD: {artifact.group_id}:{artifact.artifact_id}:{artifact.version}")
+                logger.info(f"  File path: {artifact.file_path}")
+                logger.info(f"  Repository: {artifact.repository}")
                 if hasattr(artifact, 'download_url') and artifact.download_url:
-                    logger.info(f"[POM DEBUG]   Download URL: {artifact.download_url}")
+                    logger.info(f"  Download URL: {artifact.download_url}")
 
             # 定期内存检查和清理
             current_time = time.time()
@@ -483,9 +483,9 @@ class MemoryPipelineMigrator:
                 if is_pom_file:
                     with self.pom_lock:
                         self.pom_stats['download_success'] += 1
-                    logger.info(f"[POM DEBUG] ✅ POM DOWNLOAD SUCCESS: {artifact.group_id}:{artifact.artifact_id}:{artifact.version}")
-                    logger.info(f"[POM DEBUG]   File size: {len(file_data)} bytes")
-                    logger.info(f"[POM DEBUG]   File hash: {task.file_hash[:16]}...")
+                    logger.info(f"✅ POM DOWNLOAD SUCCESS: {artifact.group_id}:{artifact.artifact_id}:{artifact.version}")
+                    logger.info(f"  File size: {len(file_data)} bytes")
+                    logger.info(f"  File hash: {task.file_hash[:16]}...")
 
                 # 更新内存使用量
                 with self.memory_lock:
@@ -508,7 +508,7 @@ class MemoryPipelineMigrator:
                     if is_pom_file:
                         with self.pom_lock:
                             self.pom_stats['upload_failed'] += 1
-                        logger.error(f"[POM DEBUG] ❌ POM QUEUE FAILED: {artifact.group_id}:{artifact.artifact_id}:{artifact.version} - {queue_error}")
+                        logger.error(f"❌ POM QUEUE FAILED: {artifact.group_id}:{artifact.artifact_id}:{artifact.version} - {queue_error}")
                     # 释放内存
                     with self.memory_lock:
                         self.current_memory_usage -= len(file_data)
@@ -530,7 +530,7 @@ class MemoryPipelineMigrator:
                 if is_pom_file:
                     with self.pom_lock:
                         self.pom_stats['download_failed'] += 1
-                    logger.error(f"[POM DEBUG] ❌ POM DOWNLOAD FAILED: {artifact.group_id}:{artifact.artifact_id}:{artifact.version} - {task.error_message}")
+                    logger.error(f"❌ POM DOWNLOAD FAILED: {artifact.group_id}:{artifact.artifact_id}:{artifact.version} - {task.error_message}")
 
         except Exception as e:
             task.error_message = str(e)
@@ -776,7 +776,7 @@ class MemoryPipelineMigrator:
                         if is_pom_file:
                             with self.pom_lock:
                                 self.pom_stats['upload_attempted'] += 1
-                            logger.info(f"[POM DEBUG] 🔄 STARTING POM UPLOAD: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version}")
+                            logger.info(f"🔄 STARTING POM UPLOAD: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version}")
 
                         # 创建临时目录和文件用于上传
                         temp_dir = tempfile.mkdtemp()
@@ -790,7 +790,7 @@ class MemoryPipelineMigrator:
 
                             # 上传文件
                             maven_path = self._convert_to_maven_path(task.artifact)
-                            logger.debug(f"[POM DEBUG] Uploading to Nexus path: {maven_path}")
+                            logger.debug(f"Uploading to Nexus path: {maven_path}")
                             result = self.nexus_uploader.upload_file(
                                 Path(temp_file_path), maven_path
                             )
@@ -803,13 +803,13 @@ class MemoryPipelineMigrator:
                                 if is_pom_file:
                                     with self.pom_lock:
                                         self.pom_stats['upload_success'] += 1
-                                    logger.info(f"[POM DEBUG] ✅ POM UPLOAD SUCCESS: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version}")
-                                    logger.info(f"[POM DEBUG]   Maven path: {maven_path}")
-                                    logger.info(f"[POM DEBUG]   File size: {len(task.file_data)} bytes")
+                                    logger.info(f"✅ POM UPLOAD SUCCESS: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version}")
+                                    logger.info(f"  Maven path: {maven_path}")
+                                    logger.info(f"  File size: {len(task.file_data)} bytes")
                                 elif task.artifact.file_path.endswith('.pom'):
                                     with self.pom_lock:
                                         self.pom_stats['upload_success'] += 1
-                                    logger.info(f"[POM DEBUG] ✅ POM UPLOAD SUCCESS: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version}")
+                                    logger.info(f"✅ POM UPLOAD SUCCESS: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version}")
 
                                 # 记录已上传的依赖信息
                                 repository_name = task.artifact.repository or "Unknown"
@@ -851,9 +851,9 @@ class MemoryPipelineMigrator:
                                 if is_pom_file:
                                     with self.pom_lock:
                                         self.pom_stats['upload_failed'] += 1
-                                    logger.error(f"[POM DEBUG] ❌ POM UPLOAD FAILED: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version}")
-                                    logger.error(f"[POM DEBUG]   Error: {task.error_message}")
-                                    logger.error(f"[POM DEBUG]   Maven path: {maven_path}")
+                                    logger.error(f"❌ POM UPLOAD FAILED: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version}")
+                                    logger.error(f"  Error: {task.error_message}")
+                                    logger.error(f"  Maven path: {maven_path}")
 
                         finally:
                             # 清理临时文件和目录
@@ -878,7 +878,7 @@ class MemoryPipelineMigrator:
                     if is_pom_file:
                         with self.pom_lock:
                             self.pom_stats['upload_failed'] += 1
-                        logger.error(f"[POM DEBUG] ❌ POM UPLOAD EXCEPTION: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version} - {e}")
+                        logger.error(f"❌ POM UPLOAD EXCEPTION: {task.artifact.group_id}:{task.artifact.artifact_id}:{task.artifact.version} - {e}")
                     logger.error(f"Failed to upload {task.artifact.file_path}: {e}")
 
                 finally:
@@ -1057,7 +1057,7 @@ class MemoryPipelineMigrator:
         # 建议的调试步骤
         if stats['discovered_in_coding'] > 0 and (stats['download_failed'] > 0 or stats['upload_failed'] > 0 or len(stats['missing_in_nexus']) > 0):
             logger.info("🔧 SUGGESTED DEBUGGING STEPS:")
-            logger.info("1. Check the detailed [POM DEBUG] logs above for specific error messages")
+            logger.info("1. Check the detailed logs above for specific error messages")
             logger.info("2. Review failed dependency logs:")
             logger.info(f"   - CODING download failures: {self.failed_download_log}")
             logger.info(f"   - Nexus upload failures: {self.failed_upload_log}")
