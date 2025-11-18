@@ -176,6 +176,7 @@ def list_projects(ctx):
 
 @cli.command()
 @click.option('--projects', '-p', help='要迁移的项目名称，多个项目用逗号分隔')
+@click.option('--components', '-c', help='要迁移的组件，格式：groupId:artifactId:version，多个组件用逗号分隔')
 @click.option('--standard-mode', is_flag=True,
               help='使用标准模式（下载到本地再上传），默认使用内存流水线模式')
 @click.option('--cleanup', is_flag=True,
@@ -186,7 +187,7 @@ def list_projects(ctx):
               help='保留迁移记录文件，默认完成后清理')
 @click.option('--filter', '-f', help='包过滤规则，多个规则用逗号分隔，覆盖配置文件设置')
 @click.pass_context
-def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter):
+def migrate(ctx, projects, components, standard_mode, cleanup, dry_run, keep_records, filter):
     """执行Maven制品迁移（推荐使用内存流水线模式）"""
     try:
         config_manager = ConfigManager(ctx.obj['config_file'])
@@ -200,8 +201,13 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
         if dry_run:
             click.echo("[SEARCH] 试运行模式 - 只查看要迁移的制品")
 
+        # 处理组件迁移模式
+        if components:
+            click.echo("[INFO] 使用组件迁移模式")
+            return _migrate_components(ctx, components, config, standard_mode, cleanup, dry_run)
+
         if standard_mode:
-            click.echo("📁 使用标准模式（下载到本地）")
+            click.echo("[INFO] 使用标准模式（下载到本地）")
             migrator = MavenMigrator(config)
 
             if projects:
@@ -222,7 +228,7 @@ def migrate(ctx, projects, standard_mode, cleanup, dry_run, keep_records, filter
                 )
                 _display_result(result)
         else:
-            click.echo("⚡ 使用内存流水线模式（零磁盘占用）")
+            click.echo("[INFO] 使用内存流水线模式（零磁盘占用）")
             migrator = MemoryPipelineMigrator(config)
 
             # 确定要迁移的项目列表
@@ -643,6 +649,103 @@ def _find_migration_processes() -> List[dict]:
     migration_processes.sort(key=lambda x: x['create_time'])
 
     return migration_processes
+
+
+def _migrate_components(ctx, components: str, config, standard_mode: bool, cleanup: bool, dry_run: bool):
+    """
+    迁移指定的组件
+
+    Args:
+        ctx: Click 上下文
+        components: 组件字符串，格式：groupId:artifactId:version，多个组件用逗号分隔
+        config: 配置对象
+        standard_mode: 是否使用标准模式
+        cleanup: 是否清理下载文件
+        dry_run: 是否试运行
+    """
+    from .memory_pipeline_migrator import MemoryPipelineMigrator
+
+    # 解析组件字符串
+    parsed_components = _parse_components(components)
+    if not parsed_components:
+        click.echo("[ERROR] 组件格式错误，请使用格式：groupId:artifactId:version")
+        return
+
+    click.echo(f"[INFO] 解析到 {len(parsed_components)} 个组件:")
+    for i, comp in enumerate(parsed_components, 1):
+        packaging = comp.get('packaging', 'jar')
+        click.echo(f"  {i}. {comp['group_id']}:{comp['artifact_id']}:{packaging}:{comp['version']}")
+
+    if dry_run:
+        click.echo("[INFO] 试运行模式 - 将显示要迁移的文件但不执行迁移")
+        return
+
+    # 根据模式选择迁移器
+    if standard_mode:
+        click.echo("[INFO] 使用标准模式迁移组件")
+        migrator = MavenMigrator(config)
+        # TODO: 实现标准模式的组件迁移
+        click.echo("[ERROR] 标准模式的组件迁移功能尚未实现，请使用默认的内存流水线模式")
+        return
+    else:
+        click.echo("[INFO] 使用内存流水线模式迁移组件")
+        migrator = MemoryPipelineMigrator(config)
+
+        # 执行组件迁移
+        try:
+            result = migrator.migrate_components(parsed_components)
+            _display_result(result)
+        except Exception as e:
+            click.echo(f"[ERROR] 组件迁移失败: {e}", err=True)
+            if ctx.obj['verbose']:
+                import traceback
+                traceback.print_exc()
+            return
+
+
+def _parse_components(components_str: str) -> List[dict]:
+    """
+    解析组件字符串
+
+    Args:
+        components_str: 组件字符串，格式：groupId:artifactId:version 或 groupId:artifactId:packaging:version，多个组件用逗号分隔
+                       支持 groupId:artifactId:jar:version 格式（自动跳过中间的 jar 部分）
+
+    Returns:
+        解析后的组件列表，每个组件包含 group_id, artifact_id, version, packaging(可选)
+    """
+    components = []
+
+    for component_str in components_str.split(','):
+        component_str = component_str.strip()
+        if not component_str:
+            continue
+
+        parts = component_str.split(':')
+
+        if len(parts) == 3:
+            # 格式：groupId:artifactId:version
+            group_id, artifact_id, version = parts
+            packaging = 'jar'  # 默认 packaging
+        elif len(parts) == 4:
+            # 格式：groupId:artifactId:packaging:version
+            group_id, artifact_id, packaging, version = parts
+            # 如果第三部分是 jar，则跳过，使用默认的 jar packaging
+            if packaging == 'jar':
+                packaging = 'jar'  # 显式设置为 jar
+        else:
+            click.echo(f"[WARNING] 组件格式错误: {component_str}，应为 groupId:artifactId:version 或 groupId:artifactId:packaging:version")
+            continue
+
+        if group_id and artifact_id and version:
+            components.append({
+                'group_id': group_id.strip(),
+                'artifact_id': artifact_id.strip(),
+                'packaging': packaging.strip(),
+                'version': version.strip()
+            })
+
+    return components
 
 
 def _display_result(result):

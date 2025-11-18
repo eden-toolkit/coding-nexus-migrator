@@ -54,6 +54,8 @@ class MavenArtifact(BaseModel):
     sha1: Optional[str] = None
     md5: Optional[str] = None
     download_url: Optional[str] = None
+    project_name: Optional[str] = None  # 所属的项目名称
+    project_id: Optional[int] = None  # 所属的项目ID
 
 
 class MavenRepositoryConfig(BaseModel):

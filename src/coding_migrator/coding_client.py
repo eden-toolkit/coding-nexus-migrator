@@ -736,19 +736,28 @@ class CodingClient:
                    file_name.endswith('-sources.jar') or file_name.endswith('.war')):
 
                     # 解析 Maven 坐标
+                    logger.debug(f"[DEBUG] Parsing file: {file_name}")
                     artifact = self._parse_maven_package_info(package_name, package_version, file_name, repository_name)
                     if artifact:
                         artifact.file_path = file_path
                         artifact.download_url = download_url
                         artifacts.append(artifact)
+                        logger.debug(f"[DEBUG] Successfully parsed artifact: {file_name}")
+                    else:
+                        logger.debug(f"[DEBUG] Failed to parse artifact: {file_name}")
 
-            logger.debug(f"Found {len(artifacts)} files for {package_name}:{package_version}")
+            logger.info(f"Found {len(artifacts)} files for {package_name}:{package_version}")
             if artifacts:
-                logger.debug(f"[INFO] Found {len(artifacts)} artifacts for {package_name}:{package_version}")
-                for i, artifact in enumerate(artifacts[:3], 1):  # 显示前3个文件
-                    logger.debug(f"  {i}. {artifact.download_url.split('/')[-1]}")
-                if len(artifacts) > 3:
-                    logger.debug(f"  ... and {len(artifacts) - 3} more files")
+                logger.info(f"[INFO] Found {len(artifacts)} artifacts for {package_name}:{package_version}")
+                for i, artifact in enumerate(artifacts[:5], 1):  # 显示前5个文件
+                    logger.info(f"  {i}. {artifact.download_url.split('/')[-1]}")
+                if len(artifacts) > 5:
+                    logger.info(f"  ... and {len(artifacts) - 5} more files")
+            else:
+                # 如果没有过滤到文件，记录原始文件信息进行调试
+                logger.warning(f"[DEBUG] No artifacts after filtering. Original files found: {len(files_data)}")
+                logger.debug(f"[DEBUG] File names: {[f.get('Path', '').split('/')[-1] for f in files_data[:10]]}")
+
             return artifacts
 
         except Exception as e:

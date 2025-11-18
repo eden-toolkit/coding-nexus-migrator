@@ -306,6 +306,11 @@ cnm --config config.yaml migrate --projects PROJECT_NAME     # 内存流水线�
 cnm --config config.yaml migrate --projects PROJECT_NAME \
   --standard-mode                                           # 标准模式迁移
 cnm --config config.yaml migrate                             # 迁移所有配置的项目
+cnm --config config.yaml migrate --components "com.example:app:1.0.0"  # 组件迁移
+cnm --config config.yaml migrate --components "com.example:app:jar:1.0.0"  # jar格式组件迁移
+cnm --config config.yaml migrate --components "com.example:app:war:2.0.0"  # war格式组件迁移
+cnm --config config.yaml migrate --components "com.example:app:1.0.0,com.example:lib:2.0.0"  # 多组件迁移
+# 组件迁移支持多种格式：groupId:artifactId:version, groupId:artifactId:packaging:version, groupId:artifactId:jar:version
 ```
 
 ### 常用选项
@@ -313,6 +318,7 @@ cnm --config config.yaml migrate                             # 迁移所有配�
 | 选项 | 说明 |
 |------|------|
 | `--projects, -p` | 指定项目，多个项目用逗号分隔 |
+| `--components, -c` | 指定组件，支持多种格式，多个组件用逗号分隔 |
 | `--standard-mode` | 使用标准模式（下载到本地再上传） |
 | `--dry-run` | 试运行，只查看不执行 |
 | `--cleanup` | 迁移完成后清理下载文件（仅标准模式） |
@@ -325,6 +331,50 @@ cnm --config config.yaml migrate                             # 迁移所有配�
 |------|------|
 | `--force, -f` | 强制终止进程，不询问确认 |
 | `--all, -a` | 终止所有找到的迁移进程 |
+
+### 组件迁移功能
+
+`--components` 参数支持直接迁移指定的 Maven 组件，无需扫描整个项目。支持多种 Maven 坐标格式：
+
+#### 支持的格式
+
+| 格式 | 说明 | 示例 |
+|------|------|------|
+| **3部分格式** | `groupId:artifactId:version`，默认 packaging 为 jar | `com.example:app:1.0.0` |
+| **4部分格式** | `groupId:artifactId:packaging:version`，明确指定 packaging | `com.example:app:war:2.0.0` |
+| **Jar格式** | `groupId:artifactId:jar:version`，自动跳过中间的 jar 部分 | `com.example:app:jar:1.0.0` |
+
+#### 使用特点
+
+- ✅ **多组件支持**：用英文逗号分隔多个组件
+- ✅ **格式混合**：可在同一命令中混合使用不同格式
+- ✅ **自动搜索**：跨所有 CODING 项目搜索组件
+- ✅ **零磁盘占用**：使用内存流水线模式，边下载边上传
+- ✅ **自动退出**：迁移完成后程序自动退出
+
+#### 命令示例
+
+```bash
+# 单个组件（3部分格式）
+cnm --config config.yaml migrate --components "com.example:app:1.0.0"
+
+# 单个组件（4部分格式）
+cnm --config config.yaml migrate --components "com.example:app:war:2.0.0"
+
+# Jar格式（自动跳过中间的jar）
+cnm --config config.yaml migrate --components "com.example:app:jar:1.0.0"
+
+# 多个组件
+cnm --config config.yaml migrate --components "com.example:app:1.0.0,com.example:lib:2.0.0"
+
+# 混合格式
+cnm --config config.yaml migrate --components "com.example:app:jar:1.0.0,com.org:lib:war:2.0.0,com.project:core:3.0.0"
+
+# 试运行查看将要迁移的组件
+cnm --config config.yaml migrate --components "com.example:app:1.0.0" --dry-run
+```
+
+> **注意**：组件迁移功能会搜索所有 CODING 项目中的 Maven 仓库来找到指定的组件。这意味着组件可能位于与预期不同的项目中。程序会自动找到并迁移匹配的组件文件。
 
 ### 使用示例
 
@@ -339,14 +389,33 @@ cnm --config config.yaml migrate --projects "project1,project2"
 cnm --config config.yaml migrate --projects myproject \
   --filter "com.company.*,com.org.*"
 
+# 迁移指定组件（实际案例）
+cnm --config config.yaml migrate --components "com.puyi.fss.finups:finups-facade:jar:1.0.0-SNAPSHOT"
+cnm --config config.yaml migrate --components "com.puyi.kernel:kernel-hundsun-dependency-pywm-parent:release-SNAPSHOT"
+
+# 迁移多个指定组件
+cnm --config config.yaml migrate --components "com.example:app:1.0.0,com.example:lib:2.0.0"
+
+# 支持多种组件格式
+cnm --config config.yaml migrate --components "com.example:app:jar:1.0.0"        # jar格式（自动跳过中间的jar）
+cnm --config config.yaml migrate --components "com.example:app:war:2.0.0"        # war格式
+cnm --config config.yaml migrate --components "com.project:module:3.0.0"        # 简化格式（默认jar）
+
+# 混合格式多组件迁移
+cnm --config config.yaml migrate --components "com.example:app:jar:1.0.0,com.org:lib:war:2.0.0,com.project:core:3.0.0"
+
 # 试运行查看将要迁移的制品
 cnm --config config.yaml migrate --projects myproject --dry-run
+
+# 试运行查看组件迁移
+cnm --config config.yaml migrate --components "com.example:app:1.0.0" --dry-run
 
 # 标准模式迁移（适合调试）
 cnm --config config.yaml migrate --projects myproject --standard-mode
 
 # 后台运行迁移
 nohup cnm --config config.yaml migrate --projects myproject > migration.log 2>&1 &
+nohup cnm --config config.yaml migrate --components "com.example:app:1.0.0" > migration.log 2>&1 &
 
 # 进程管理
 cnm status                                                    # 查看正在运行的迁移进程

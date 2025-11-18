@@ -326,7 +326,7 @@ class MemoryPipelineMigrator:
     def _generate_final_stats(self) -> None:
         """生成最终统计信息"""
         logger.info("=" * 60)
-        logger.info("📊 MEMORY PIPELINE MIGRATION SUMMARY")
+        logger.info("MEMORY PIPELINE MIGRATION SUMMARY")
         logger.info("=" * 60)
         logger.info(f"[OK] Total artifacts processed: {self.stats['total_artifacts']}")
         logger.info(f"⬇️  Downloaded: {self.stats['downloaded']}")
@@ -667,6 +667,46 @@ class MemoryPipelineMigrator:
         except Exception as e:
             logger.error(f"Error during preventive memory cleanup: {e}")
 
+    def _download_artifact_simple(self, artifact: MavenArtifact) -> bool:
+        """
+        简化的制品下载方法（用于组件迁移）
+
+        Args:
+            artifact: 制品信息
+
+        Returns:
+            下载是否成功
+        """
+        if self.stop_event.is_set():
+            return False
+
+        try:
+            # 下载到内存
+            file_data = self._download_to_memory(artifact)
+            if not file_data:
+                logger.error(f"Failed to download {artifact.file_path}")
+                self.stats['download_failed'] += 1
+                return False
+
+            # 创建内存任务对象
+            task = MemoryMigrationTask(
+                artifact=artifact,
+                file_data=file_data,
+                download_success=True
+            )
+
+            # 添加到上传队列
+            self.upload_queue.put(task)
+            self.stats['downloaded'] += 1
+            logger.debug(f"Successfully downloaded and queued: {artifact.file_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Download failed for {artifact.file_path}: {e}")
+            self.stats['download_failed'] += 1
+            self._log_failed_download(artifact, str(e))
+            return False
+
     def _download_to_memory(self, artifact: MavenArtifact) -> Optional[bytes]:
         """下载文件到内存"""
         try:
@@ -723,6 +763,11 @@ class MemoryPipelineMigrator:
 
                 # 从队列获取任务
                 task = self.upload_queue.get(timeout=1.0)
+
+                # 检查是否为结束标记
+                if task is None:
+                    logger.debug("Upload worker received shutdown signal")
+                    break
 
                 try:
                     if task.download_success and task.file_data:
@@ -877,7 +922,7 @@ class MemoryPipelineMigrator:
     def _generate_final_stats(self) -> None:
         """生成最终统计信息"""
         logger.info("=" * 60)
-        logger.info("📊 MEMORY PIPELINE MIGRATION SUMMARY")
+        logger.info("MEMORY PIPELINE MIGRATION SUMMARY")
         logger.info("=" * 60)
         logger.info(f"[OK] Total artifacts processed: {self.stats['total_artifacts']}")
         logger.info(f"⬇️  Downloaded: {self.stats['downloaded']}")
@@ -1022,3 +1067,206 @@ class MemoryPipelineMigrator:
             logger.info("6. Verify network connectivity to both CODING and Nexus")
             logger.info("7. Consider running with logging level set to DEBUG for more details")
             logger.info("")
+
+    def migrate_components(self, components: List[dict]) -> Dict[str, Any]:
+        """
+        迁移指定的组件
+
+        Args:
+            components: 组件列表，每个组件包含 group_id, artifact_id, version
+
+        Returns:
+            迁移结果统计
+        """
+        logger.info(f"Starting memory pipeline migration for {len(components)} components")
+
+        # 初始化统计信息
+        stats = {
+            'total_artifacts': 0,
+            'downloaded': 0,
+            'uploaded': 0,
+            'download_failed': 0,
+            'upload_failed': 0,
+            'skipped_existing': 0
+        }
+
+        try:
+            # 为组件迁移创建专门的记录文件
+            import time
+            timestamp = int(time.time())
+            self.record_file = self.records_dir / f"components_migration_{timestamp}.json"
+            self._load_migration_records()
+
+            # 获取所有项目以用于查找组件
+            all_projects = self.coding_client.get_all_projects()
+            if not all_projects:
+                logger.error("[ERROR] 无法获取任何项目信息")
+                return stats
+
+            # 获取每个项目的仓库信息
+            all_artifacts = []
+
+            for component in components:
+                group_id = component['group_id']
+                artifact_id = component['artifact_id']
+                version = component['version']
+                package_name = f"{group_id}:{artifact_id}"
+
+                logger.info(f"[SEARCH] 查找组件: {package_name}:{version}")
+
+                component_found = False
+
+                # 在所有项目中查找这个组件
+                for project in all_projects:
+                    logger.debug(f"[SEARCH] 在项目 {project.name} (ID: {project.id}) 中查找...")
+
+                    # 获取项目的仓库信息
+                    repositories = []
+                    try:
+                        repos = self.coding_client.get_artifact_repositories(project.id)
+                        for repo in repos:
+                            if repo.get('Type') == 3:  # Maven 类型
+                                repositories.append(repo.get('Name'))
+                        logger.debug(f"[SEARCH] 项目 {project.name} 找到 Maven 仓库: {repositories}")
+                    except Exception as e:
+                        logger.debug(f"[SEARCH] 获取项目 {project.name} 仓库信息失败: {e}")
+                        continue
+
+                    # 在每个仓库中查找组件
+                    for repository_name in repositories:
+                        try:
+                            logger.debug(f"[SEARCH] 在仓库 {repository_name} 中查找 {package_name}:{version}")
+
+                            # 调用 get_maven_version_files 获取组件的文件列表
+                            artifacts = self.coding_client.get_maven_version_files(
+                                project.id, project.name, repository_name, package_name, version
+                            )
+                            logger.info(f"[SEARCH] 仓库 {repository_name} 返回了 {len(artifacts) if artifacts else 0} 个制品")
+
+                            if artifacts:
+                                logger.info(f"[SUCCESS] 在项目 {project.name} 的仓库 {repository_name} 中找到 {len(artifacts)} 个文件")
+                                logger.info(f"[INFO] 文件列表: {[a.download_url.split('/')[-1] for a in artifacts[:5]]}")
+
+                                # 添加项目名称到制品信息中
+                                for artifact in artifacts:
+                                    # 为制品对象添加项目信息
+                                    artifact.project_name = project.name
+                                    artifact.project_id = project.id
+                                    # 如果仓库信息为空，则设置
+                                    if not artifact.repository:
+                                        artifact.repository = repository_name
+
+                                all_artifacts.extend(artifacts)
+                                component_found = True
+                                logger.info(f"[SUCCESS] 组件 {package_name}:{version} 查找成功，共找到 {len(all_artifacts)} 个文件")
+                                logger.info(f"[DEBUG] 设置 component_found = True，准备跳出仓库循环")
+
+                                # 组件在一个项目中找到后，就不在其他项目中继续查找
+                                break
+
+                        except Exception as e:
+                            logger.debug(f"[SEARCH] 在仓库 {repository_name} 中查找失败: {e}")
+                            continue
+
+                    logger.info(f"[DEBUG] 完成项目 {project.name} 的所有仓库查找，component_found = {component_found}")
+                    if component_found:
+                        logger.info(f"[DEBUG] component_found = True，准备跳出项目循环")
+                        break
+
+                if not component_found:
+                    logger.warning(f"[NOT FOUND] 组件 {package_name}:{version} 在所有项目中都未找到")
+
+            stats['total_artifacts'] = len(all_artifacts)
+
+            if not all_artifacts:
+                logger.warning("[WARNING] 没有找到任何组件文件")
+                logger.info("[INFO] 可能的原因:")
+                logger.info("  1. 组件坐标不正确")
+                logger.info("  2. 版本号不匹配")
+                logger.info("  3. 组件不在任何 CODING Maven 仓库中")
+                logger.info("  4. 仓库访问权限问题")
+                return stats
+
+            logger.info(f"[INFO] 总共找到 {len(all_artifacts)} 个文件待迁移")
+            logger.info(f"[INFO] 文件预览: {[a.file_path for a in all_artifacts[:5]]}")  # 显示前5个文件路径
+
+            # 过滤已上传的制品
+            filtered_artifacts = []
+            for artifact in all_artifacts:
+                existing_hash = self._check_if_already_uploaded(artifact)
+                if existing_hash:
+                    stats['skipped_existing'] += 1
+                    logger.debug(f"Skipping already uploaded: {artifact.file_path}")
+                else:
+                    filtered_artifacts.append(artifact)
+
+            logger.info(f"Found {len(all_artifacts)} total artifacts, {len(filtered_artifacts)} to migrate "
+                       f"({stats['skipped_existing']} already uploaded)")
+
+            if not filtered_artifacts:
+                logger.info("All artifacts have already been migrated")
+                return stats
+
+            # 执行迁移逻辑（复用现有的流水线逻辑）
+            # 重置队列和统计
+            self.upload_queue = Queue(maxsize=50)
+            self.completed_tasks = []
+            self.failed_tasks = []
+            self.stats = stats.copy()
+            self.stop_event.clear()
+
+            # 启动下载和上传线程池
+            with ThreadPoolExecutor(max_workers=self.download_workers + self.upload_workers) as executor:
+                # 启动上传工作线程
+                upload_futures = []
+                for i in range(self.upload_workers):
+                    future = executor.submit(self._upload_worker)
+                    upload_futures.append(future)
+
+                # 启动下载工作线程
+                download_futures = []
+                for artifact in filtered_artifacts:
+                    if self.stop_event.is_set():
+                        break
+                    future = executor.submit(self._download_artifact_simple, artifact)
+                    download_futures.append(future)
+
+                # 等待所有下载任务完成
+                for future in as_completed(download_futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Download task failed: {e}")
+
+                # 添加结束标记到上传队列
+                for _ in range(self.upload_workers):
+                    self.upload_queue.put(None)
+
+                # 等待所有上传任务完成
+                for future in as_completed(upload_futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Upload worker failed: {e}")
+
+            # 保存迁移记录
+            self._save_migration_records()
+
+            # 记录最终统计
+            final_stats = self.stats.copy()
+            # 确保 total_artifacts 反映实际找到的制品数
+            final_stats['total_artifacts'] = len(all_artifacts)
+            logger.info(f"Component migration completed:")
+            logger.info(f"  Total artifacts: {final_stats['total_artifacts']}")
+            logger.info(f"  Downloaded: {final_stats['downloaded']}")
+            logger.info(f"  Uploaded: {final_stats['uploaded']}")
+            logger.info(f"  Skipped existing: {final_stats['skipped_existing']}")
+            logger.info(f"  Download failed: {final_stats['download_failed']}")
+            logger.info(f"  Upload failed: {final_stats['upload_failed']}")
+
+            return final_stats
+
+        except Exception as e:
+            logger.error(f"Component migration failed: {e}")
+            stats['error'] = str(e)
+            return stats
