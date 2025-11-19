@@ -124,14 +124,14 @@ python -m build
 ```
 
 #### 2. 上传并安装
-将 `dist/coding_nexus_migrator-1.0.0-py3-none-any.whl` 上传到服务器：
+将 `dist/coding_nexus_migrator-1.1.0-py3-none-any.whl` 上传到服务器：
 ```bash
 # 创建虚拟环境
 python3 -m venv venv
 source venv/bin/activate
 
 # 安装工具
-pip install coding_nexus_migrator-1.0.0-py3-none-any.whl
+pip install coding_nexus_migrator-1.1.0-py3-none-any.whl
 ```
 
 #### 3. 配置（三种方式）
