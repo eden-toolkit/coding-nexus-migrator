@@ -704,28 +704,83 @@ class CodingClient:
         logger.debug(f"Fetching files for {package_name}:{package_version}")
 
         try:
-            # 使用正确的 DescribeArtifactRepositoryFileList API
-            data = {
-                "Project": project_name,
-                "Repository": repository_name,
-                "ContinuationToken": "",
-                "PageSize": 1000,
-                "Artifacts": [
-                    {
-                        "PackageName": package_name,
-                        "VersionName": package_version
-                    }
-                ]
-            }
-
-            logger.debug(f"API request data for file list: {data}")
-            response = self._make_request("DescribeArtifactRepositoryFileList", data=data)
-            logger.debug(f"File list API response: {response}")
-
             artifacts = []
-            files_data = response.get('Response', {}).get('Data', {}).get('InstanceSet', [])
+            all_files_data = []
+            continuation_token = ""
 
-            for file_data in files_data:
+            # 分页获取所有文件
+            while True:
+                # 使用正确的 DescribeArtifactRepositoryFileList API
+                data = {
+                    "Project": project_name,
+                    "Repository": repository_name,
+                    "ContinuationToken": continuation_token,
+                    "PageSize": 100,
+                    "Artifacts": [
+                        {
+                            "PackageName": package_name,
+                            "VersionName": package_version
+                        }
+                    ]
+                }
+
+                logger.debug(f"API request data for file list (page): {data}")
+                response = self._make_request("DescribeArtifactRepositoryFileList", data=data)
+                logger.debug(f"File list API response (page): {response}")
+
+                files_data = response.get('Response', {}).get('Data', {}).get('InstanceSet', [])
+                all_files_data.extend(files_data)
+
+                # 检查是否还有更多页面
+                continuation_token = response.get('Response', {}).get('Data', {}).get('ContinuationToken', '')
+                if not continuation_token:
+                    break  # 没有更多页面了
+
+                logger.debug(f"Found {len(files_data)} files in this page, continuing with token: {continuation_token}")
+
+                # 防止无限循环
+                if len(all_files_data) > 5000:  # 最多获取5000个文件
+                    logger.warning(f"Reached maximum file limit (5000), stopping pagination")
+                    break
+
+            logger.info(f"[DEBUG] Total files fetched across all pages: {len(all_files_data)}")
+            files_data = all_files_data
+
+            # 对文件数据进行排序，确保最新版本的文件排在前面
+            # CODING通常返回按时间倒序排列的文件，但我们额外确保一下
+            def sort_key_func(file_item):
+                file_path = file_item.get('Path', '')
+                file_name = file_path.split('/')[-1] if file_path else ''
+
+                # 提取时间戳和构建号用于排序 (格式: YYYYMMDD.HHMMSS-buildNumber)
+                import re
+                timestamp_match = re.search(r'(\d{8})\.(\d{6})-(\d+)', file_name)
+                if timestamp_match:
+                    date_part = timestamp_match.group(1)      # YYYYMMDD
+                    time_part = timestamp_match.group(2)      # HHMMSS
+                    build_part = int(timestamp_match.group(3))  # buildNumber
+                    # 返回负值用于降序排列（最新的在前）
+                    return -(int(date_part) * 1000000 + int(time_part) * 1000 + build_part)
+                else:
+                    return 0  # 非时间戳文件排在最后
+
+            files_data_sorted = sorted(files_data, key=sort_key_func)
+
+            # 添加调试日志：显示所有返回的文件和排序结果
+            logger.info(f"[DEBUG] CODING API returned {len(files_data)} files total:")
+            for i, file_item in enumerate(files_data[:10], 1):  # 显示前10个文件
+                file_path = file_item.get('Path', '')
+                file_name = file_path.split('/')[-1] if file_path else 'unknown'
+                logger.info(f"[DEBUG] Original API file {i}: {file_name}")
+
+            logger.info(f"[DEBUG] After sorting, top files are:")
+            for i, file_item in enumerate(files_data_sorted[:10], 1):  # 显示排序后的前10个
+                file_path = file_item.get('Path', '')
+                file_name = file_path.split('/')[-1] if file_path else 'unknown'
+                sort_key = sort_key_func(file_item)
+                logger.info(f"[DEBUG] Sorted file {i} (key={sort_key}): {file_name}")
+
+            for file_data in files_data_sorted:
                 # 解析文件信息
                 download_url = file_data.get('DownloadUrl', '')
                 file_path = file_data.get('Path', '')

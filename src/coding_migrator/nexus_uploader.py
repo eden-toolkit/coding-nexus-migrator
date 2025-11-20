@@ -218,7 +218,7 @@ class NexusUploader:
             with open(file_path, 'rb') as f:
                 file_content = f.read()
 
-            # 构建 Maven 坐标
+            # 从 repository_path 解析 Maven 坐标
             parts = repository_path.split('/')
             if len(parts) >= 4:
                 group_id = '.'.join(parts[:-3])
@@ -229,74 +229,81 @@ class NexusUploader:
                 # 根据版本号确定目标仓库
                 target_repository = self.determine_repository(version)
 
-                # 构建 PUT URL: /repository/{repo-name}/{group-path}/{artifact}/{version}/{filename}
-                group_path = group_id.replace('.', '/')
-                put_url = f"{self.nexus_url}/repository/{target_repository}/{group_path}/{artifact_id}/{version}/{filename}"
+                # 构建 PUT URL: /repository/{repo-name}/{maven-path}
+                put_url = f"{self.nexus_url}/repository/{target_repository}/{repository_path}"
+            else:
+                # 如果路径格式不正确，使用默认仓库
+                target_repository = self.repository
+                put_url = f"{self.nexus_url}/repository/{target_repository}/{repository_path}"
+                group_id = "unknown"
+                artifact_id = "unknown"
+                version = "unknown"
+                filename = repository_path.split('/')[-1] if repository_path else "unknown"
 
-                # 上传主文件
-                main_result = self._upload_single_file(put_url, file_content, filename, target_repository,
-                                                      group_id, artifact_id, version, file_path.suffix)
+            # 上传主文件
+            main_result = self._upload_single_file(put_url, file_content, filename, target_repository,
+                                                  group_id, artifact_id, version, file_path.suffix)
 
-                if not main_result["success"]:
-                    return main_result
+            if not main_result["success"]:
+                return main_result
 
-                # 生成并上传校验和文件
-                checksum_results = []
-                try:
-                    # 计算 SHA1 和 MD5
-                    sha1_hash = hashlib.sha1(file_content).hexdigest()
-                    md5_hash = hashlib.md5(file_content).hexdigest()
+            # 生成并上传校验和文件
+            checksum_results = []
+            try:
+                # 计算 SHA1 和 MD5
+                sha1_hash = hashlib.sha1(file_content).hexdigest()
+                md5_hash = hashlib.md5(file_content).hexdigest()
 
-                    # 上传 SHA1 文件
-                    sha1_url = f"{put_url}.sha1"
-                    sha1_result = self._upload_single_file(sha1_url, sha1_hash.encode('utf-8'),
-                                                           f"{filename}.sha1", target_repository,
-                                                           group_id, artifact_id, version, '.sha1')
-                    checksum_results.append(sha1_result)
+                # 上传 SHA1 文件
+                sha1_url = f"{put_url}.sha1"
+                sha1_result = self._upload_single_file(sha1_url, sha1_hash.encode('utf-8'),
+                                                       f"{filename}.sha1", target_repository,
+                                                       group_id, artifact_id, version, '.sha1')
+                checksum_results.append(sha1_result)
 
-                    # 上传 MD5 文件
-                    md5_url = f"{put_url}.md5"
-                    md5_result = self._upload_single_file(md5_url, md5_hash.encode('utf-8'),
-                                                         f"{filename}.md5", target_repository,
-                                                         group_id, artifact_id, version, '.md5')
-                    checksum_results.append(md5_result)
+                # 上传 MD5 文件
+                md5_url = f"{put_url}.md5"
+                md5_result = self._upload_single_file(md5_url, md5_hash.encode('utf-8'),
+                                                     f"{filename}.md5", target_repository,
+                                                     group_id, artifact_id, version, '.md5')
+                checksum_results.append(md5_result)
 
-                    # 检查校验和文件是否都上传成功
-                    checksum_success = all(result["success"] for result in checksum_results)
-                    if not checksum_success:
-                        logger.warning(f"Some checksum files failed to upload for {filename}")
-                        for result in checksum_results:
-                            if not result["success"]:
-                                logger.warning(f"Failed to upload {result.get('maven_path', 'unknown')}: {result.get('error', 'unknown')}")
+                # 检查校验和文件是否都上传成功
+                checksum_success = all(result["success"] for result in checksum_results)
+                if not checksum_success:
+                    logger.warning(f"Some checksum files failed to upload for {filename}")
+                    for result in checksum_results:
+                        if not result["success"]:
+                            logger.warning(f"Failed to upload {result.get('maven_path', 'unknown')}: {result.get('error', 'unknown')}")
 
-                    # 显示更清晰的上传信息
-                    logger.info(f"[OK] UPLOAD: {group_id}:{artifact_id}:{version} -> {target_repository}")
-                    logger.info(f"   File: {filename}")
-                    logger.info(f"   SHA1: {sha1_hash}")
-                    logger.info(f"   MD5: {md5_hash}")
+                # 显示更清晰的上传信息
+                logger.info(f"[OK] UPLOAD: {group_id}:{artifact_id}:{version} -> {target_repository}")
+                logger.info(f"   File: {filename}")
+                logger.info(f"   SHA1: {sha1_hash}")
+                logger.info(f"   MD5: {md5_hash}")
 
-                    return {
-                        "success": True,
-                        "file_path": str(file_path),
-                        "maven_path": repository_path,
-                        "repository": target_repository,
-                        "status_code": main_result["status_code"],
-                        "sha1": sha1_hash,
-                        "md5": md5_hash,
-                        "checksum_uploaded": checksum_success
-                    }
+                return {
+                    "success": True,
+                    "file_path": str(file_path),
+                    "maven_path": repository_path,
+                    "repository": target_repository,
+                    "status_code": main_result["status_code"],
+                    "sha1": sha1_hash,
+                    "md5": md5_hash,
+                    "checksum_uploaded": checksum_success
+                }
 
-                except Exception as e:
-                    logger.error(f"Failed to upload checksum files for {filename}: {e}")
-                    # 即使校验和文件上传失败，主文件已经上传成功，仍然返回成功
-                    return {
-                        "success": True,
-                        "file_path": str(file_path),
-                        "maven_path": repository_path,
-                        "repository": target_repository,
-                        "status_code": main_result["status_code"],
-                        "checksum_error": str(e)
-                    }
+            except Exception as e:
+                logger.error(f"Failed to upload checksum files for {filename}: {e}")
+                # 即使校验和文件上传失败，主文件已经上传成功，仍然返回成功
+                return {
+                    "success": True,
+                    "file_path": str(file_path),
+                    "maven_path": repository_path,
+                    "repository": target_repository,
+                    "status_code": main_result["status_code"],
+                    "checksum_error": str(e)
+                }
             else:
                 raise ValueError(f"Invalid Maven path format: {repository_path}")
 
@@ -351,7 +358,7 @@ class NexusUploader:
         if response.status_code in [201, 204]:
             return {
                 "success": True,
-                "maven_path": put_url.split(f"/repository/{target_repository}/")[-1],
+                "maven_path": put_url.split(f"/repository/{target_repository}/", 1)[-1] if f"/repository/{target_repository}/" in put_url else put_url.split("/repository/", 1)[-1],
                 "repository": target_repository,
                 "status_code": response.status_code
             }
@@ -372,7 +379,7 @@ class NexusUploader:
 
             return {
                 "success": False,
-                "maven_path": put_url.split(f"/repository/{target_repository}/")[-1],
+                "maven_path": put_url.split(f"/repository/{target_repository}/", 1)[-1] if f"/repository/{target_repository}/" in put_url else put_url.split("/repository/", 1)[-1],
                 "repository": target_repository,
                 "status_code": response.status_code,
                 "error": error_detail
